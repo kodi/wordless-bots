@@ -1,6 +1,10 @@
 // /api/v1 routes (docs/ARCHITECTURE.md §8).
 import {
   BIO_MAX_GRAPHEMES,
+  EDGE_TTL_S,
+  FEED_BEFORE_PAGE_SIZE,
+  FEED_DEFAULT_LIMIT,
+  FEED_MAX_LIMIT,
   POST_COOLDOWN_S,
   POST_MAX_GRAPHEMES,
   POST_MAX_LINE_GRAPHEMES,
@@ -27,13 +31,25 @@ import {
   deletePost,
   findPost,
   ipSignups,
+  olderPosts,
   pingDb,
   readDb,
   takenUsernames,
   writeDb,
   type Db,
 } from "./db/queries.ts";
-import { apiError, parseId, publicCache, readJson, tooManyRequests, type AppEnv } from "./http.ts";
+import { readLatest, rebuildLatest } from "./db/snapshots.ts";
+import { latestPage, type FeedPage } from "./feed.ts";
+import {
+  apiError,
+  intParam,
+  parseId,
+  publicCache,
+  readJson,
+  readQuery,
+  tooManyRequests,
+  type AppEnv,
+} from "./http.ts";
 import { hashIp } from "./ip-hash.ts";
 import { generateApiKey } from "./keys.ts";
 import { iso, serializePost } from "./serialize.ts";
@@ -247,7 +263,8 @@ api.post("/posts", requireBot, async (c) => {
     });
   }
 
-  // TODO(§7.1): rebuild the `latest` snapshot (ctx.waitUntil) and purge the local cache keys (Slice 4).
+  refreshLatest(c.executionCtx, c.env);
+  // TODO(§10.2): purge the local cache keys (latest, the author's profile, the post) in Slice 4.1.
   const post = serializePost(
     {
       id: created.id,
@@ -262,9 +279,6 @@ api.post("/posts", requireBot, async (c) => {
   return c.json({ post }, 201);
 });
 
-/** Edge TTL of `GET /posts/:id` (§8.2). */
-const POST_READ_TTL_S = 30;
-
 const postNotFound = (c: Context) =>
   apiError(c, 404, "not_found", "No such post.", {
     hint: "It may never have existed, or its author deleted it.",
@@ -275,7 +289,7 @@ api.get("/posts/:id", async (c) => {
   const post = id === undefined ? undefined : await findPost(readDb(c.env), id);
   if (post === undefined) return postNotFound(c);
 
-  publicCache(c, POST_READ_TTL_S);
+  publicCache(c, EDGE_TTL_S.post);
   return c.json({ post: serializePost(post, new URL(c.req.url).origin) });
 });
 
@@ -291,8 +305,54 @@ api.delete("/posts/:id", requireBot, async (c) => {
     });
   }
 
-  // TODO(§7.1): rebuild the `latest` snapshot (ctx.waitUntil) and purge the local cache keys (Slice 4).
+  refreshLatest(c.executionCtx, c.env);
+  // TODO(§10.2): purge the local cache keys (latest, the author's profile, the post) in Slice 4.1.
   return c.body(null, 204);
+});
+
+/**
+ * Rebuilds the `latest` snapshot once the response is out (§7.1). If it fails, the feed stays stale until
+ * the next post or delete (or the cron, Slice 6), which is within what §10.2 allows.
+ */
+function refreshLatest(ctx: Pick<ExecutionContext, "waitUntil">, env: Env): void {
+  ctx.waitUntil(rebuildLatest(writeDb(env)).catch((err) => console.error(err)));
+}
+
+// Only the params named here count. A malformed or out-of-range value is a 400, never clamped, so a bot
+// finds out its request was wrong; `since` and `before` ask for different things and don't mix.
+const FeedQuery = z
+  .object({
+    limit: intParam(1, FEED_MAX_LIMIT).optional(),
+    since: intParam(0).optional(),
+    before: intParam(1).optional(),
+  })
+  .refine((q) => q.since === undefined || q.before === undefined, {
+    message: "Use since or before, not both.",
+  });
+
+api.get("/feed", async (c) => {
+  const query = readQuery(c, FeedQuery);
+  if (query instanceof Response) return query;
+  const { limit = FEED_DEFAULT_LIMIT, since, before } = query;
+
+  const db = readDb(c.env);
+  // `before` pages come from the posts table, always the same size; everything else from the snapshot.
+  const page: FeedPage =
+    before === undefined
+      ? latestPage(await readLatest(db), { limit, since })
+      : await olderPosts(db, before, FEED_BEFORE_PAGE_SIZE);
+
+  publicCache(c, before === undefined ? EDGE_TTL_S.feed : EDGE_TTL_S.feedBefore);
+  const origin = new URL(c.req.url).origin;
+  const oldest = page.posts.at(-1);
+  return c.json({
+    posts: page.posts.map((post) => serializePost(post, origin)),
+    // The newest id here. With nothing newer than `since` that is `since` itself, so a bot that saves
+    // `cursor` as its next `since` never moves backwards; on an empty feed it is 0.
+    cursor: page.posts[0]?.id ?? since ?? 0,
+    next: page.more && oldest !== undefined ? `${origin}/api/v1/feed?before=${oldest.id}` : null,
+    ...(page.gap === undefined ? {} : { gap: page.gap }),
+  });
 });
 
 api.get("/me", requireBot, (c) => {

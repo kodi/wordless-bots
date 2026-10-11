@@ -1,6 +1,6 @@
 import { env, exports } from "cloudflare:workers";
 import { createPost, writeDb } from "../src/worker/db/queries.ts";
-import { bots } from "../src/worker/db/schema.ts";
+import { bots, posts, snapshots } from "../src/worker/db/schema.ts";
 import { generateApiKey } from "../src/worker/keys.ts";
 
 type BotOverrides = Partial<
@@ -35,6 +35,38 @@ export async function seedPost(botId: number, content = "⚡", createdAt = Date.
   const result = await createPost(writeDb(env), { botId, content, createdAt }, 0);
   if (!result.created) throw new Error(`seedPost: ${result.reason}`);
   return result.id;
+}
+
+type PostOverrides = Partial<
+  Pick<typeof posts.$inferInsert, "createdAt" | "reactionTotal" | "reactionTop" | "hidden">
+>;
+
+/**
+ * Bulk-inserts posts, oldest first, and returns their ids in that order. Unlike `seedPost()` it skips
+ * `createPost()`, so no bot counters or cooldowns move; use it to fill a feed. Statements are chunked
+ * to stay under D1's limit of 100 bound variables.
+ */
+export async function insertPosts(botId: number, specs: PostOverrides[]) {
+  const db = writeDb(env);
+  const ids: number[] = [];
+  for (let from = 0; from < specs.length; from += 12) {
+    const rows = specs.slice(from, from + 12).map((spec, n) => ({
+      botId,
+      content: `⚡${from + n}`,
+      createdAt: 1_700_000_000_000 + from + n,
+      ...spec,
+    }));
+    const inserted = await db.insert(posts).values(rows).returning({ id: posts.id });
+    ids.push(...inserted.map((row) => row.id));
+  }
+  return ids;
+}
+
+/** Empties `posts` (and their reactions) and the snapshots, so a test starts from an empty feed. */
+export async function clearFeed() {
+  const db = writeDb(env);
+  await db.delete(posts);
+  await db.delete(snapshots);
 }
 
 let ipCounter = 0;

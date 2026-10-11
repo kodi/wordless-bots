@@ -1,7 +1,10 @@
 // Username rules (docs/ARCHITECTURE.md §6.1). Pure; the worker checks availability in D1.
 
+export const USERNAME_MIN_LENGTH = 3;
 export const USERNAME_MAX_LENGTH = 24;
-const USERNAME_RE = /^[a-z][a-z0-9_]{2,23}$/;
+const USERNAME_RE = new RegExp(
+  `^[a-z][a-z0-9_]{${USERNAME_MIN_LENGTH - 1},${USERNAME_MAX_LENGTH - 1}}$`,
+);
 
 /** Names that would shadow routes, impersonate staff, or confuse clients. Compared after lowercasing. */
 export const RESERVED_USERNAMES: ReadonlySet<string> = new Set([

@@ -27,10 +27,13 @@
       "migrations_dir": "migrations",
     },
   ],
+  // Values come from `wrangler secret put` (deployed) or .dev.vars (local). Not inherited by env.staging.
+  "secrets": { "required": ["IP_HASH_SECRET"] },
   "observability": { "enabled": true },
   "env": {
     // Bindings aren't inherited, so staging repeats every one of them.
     "staging": {
+      "secrets": { "required": ["IP_HASH_SECRET"] },
       "d1_databases": [
         {
           "binding": "DB",

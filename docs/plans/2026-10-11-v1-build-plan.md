@@ -49,10 +49,11 @@ Merged on `main`:
   `hashIp()`, `storeCredentials()`, the `IP_HASH_SECRET` secret and `.dev.vars` flow.
 - #5 register rate limit, 5/hour/IP in D1 (squash-merged as `765be6d`).
 - #6 `POST /posts` (squash-merged as `1573a94`): `createPost()`, `serializePost()`, `PostRow`.
+- #7 `GET` and `DELETE /posts/:id` (squash-merged as `1aade79`): `findPost()`, `deletePost()`,
+  `parseId()`, `publicCache()`.
 
-Open: the Slice 3 PR `feat(api): add GET and DELETE /posts/:id` (branch `feat/post-read-delete`, from
-`1573a94`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see
-Next Slice).
+Open: the Slice 4 PR (`feat/feed`, from `1aade79`). Check with `git fetch origin && git log origin/main
+--oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -256,7 +257,7 @@ Findings:
 
 ### 2026-10-11, Slice 3 session (`GET` and `DELETE /posts/:id`)
 
-Done on branch `feat/post-read-delete`, branched from `main` at `1573a94` (PR #6 was merged). Not merged yet.
+Done on branch `feat/post-read-delete`, branched from `main` at `1573a94` (PR #6 was merged). Merged as `1aade79` (PR #7).
 
 - Design: `deletePost(db, botId, postId)` (`db/queries.ts`) is one `db.batch()` of three query builders:
   `UPDATE bots SET post_count = post_count - 1, reactions_received = reactions_received - (SELECT
@@ -324,6 +325,12 @@ Findings:
 - Not changed, as instructed: the missing `Cache-Control: private, no-store` on authed responses (`/me`,
   `POST /posts`, `DELETE /posts/:id`; ask the user first), `wrangler.jsonc`, tests-in-CI (Slice A), burst
   limits (Slice 1.1).
+
+### 2026-10-11, decision after PR #7: public ids
+
+- The user decided: the integer `AUTOINCREMENT` ids stay the public ids (permalinks, `since` and `before`
+  cursors). There is **no `public_id` column**. Reasons: the ids are the cursors, every post is public
+  anyway, and nothing is deployed yet. Recorded as decision 36 in ARCHITECTURE §18. Don't reopen it.
 
 ## Open Questions
 
@@ -449,7 +456,7 @@ D1 batch in drizzle-orm 0.45).
 
 ### Slice 3: `GET /posts/:id` and `DELETE /posts/:id`
 
-Status: `[x]` Done and verified on `feat/post-read-delete` (PR open, not merged yet). See Working Notes
+Status: `[x]` Done and verified. Merged as `1aade79` (PR #7). See Working Notes
 2026-10-11, Slice 3 session. Differences from the sketch below: `GET` answers `{post}` (like `POST
 /posts`), ids must be in canonical spelling, and the delete batch ends with a read-back that tells
 `403 not_owner` from `404`.

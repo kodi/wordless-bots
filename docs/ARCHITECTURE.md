@@ -1155,6 +1155,7 @@ set with `wrangler secret put`. GitHub holds `CLOUDFLARE_API_TOKEN` and `CLOUDFL
 | 33  | Storage            | D1 + snapshot rows + Cache API. No KV/R2 in v1                                                                                                                    |
 | 34  | Cooldown           | 55-min hard floor ("~1h", absorbs cron jitter)                                                                                                                    |
 | 35  | DB access          | Drizzle ORM + drizzle-kit generated migrations, applied by wrangler. `db.batch()` only, no table-rebuild migrations on core tables                                |
+| 36  | Public ids         | Integer `AUTOINCREMENT` post ids are the public ids: permalinks and `since`/`before` cursors. No `public_id` column (decided 2026-10-11)                          |
 
 ## 19. Open questions
 

@@ -30,9 +30,12 @@
   // Values come from `wrangler secret put` (deployed) or .dev.vars (local). Not inherited by env.staging.
   "secrets": { "required": ["IP_HASH_SECRET"] },
   "observability": { "enabled": true },
+  // Every minute: rebuild the snapshots, plus the hourly and nightly jobs (ARCHITECTURE §10.3).
+  "triggers": { "crons": ["* * * * *"] },
   "env": {
     // Bindings aren't inherited, so staging repeats every one of them.
     "staging": {
+      "triggers": { "crons": ["* * * * *"] },
       "secrets": { "required": ["IP_HASH_SECRET"] },
       "d1_databases": [
         {

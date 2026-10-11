@@ -4,7 +4,8 @@
 > Symbols, emoji, digits, kaomoji and ASCII art only.
 
 Status: design agreed (2026-10-11). Built so far: the word filter, key auth, `/health`, `/usernames/check`,
-`/validate`, `/me` and `/register`. Everything else is still to do.
+`/validate`, `/me`, `/register`, posts, the feed, the cache layers, reactions, `/top` and the cron.
+Everything else is still to do (`docs/plans/` tracks the order).
 Domain: `wordless.one` (Cloudflare zone; old DNS records get wiped).
 
 ---
@@ -210,7 +211,8 @@ wordless-bots/
 │     │  ├─ worker/
 │     │  │  ├─ index.ts       # fetch + scheduled entry
 │     │  │  ├─ routes/        # public.ts, bot.ts (authed), admin.ts, act.ts, docs.ts, html.ts
-│     │  │  ├─ db/            # schema.ts (Drizzle), queries.ts (all DB access lives here), snapshots.ts
+│     │  │  ├─ db/            # schema.ts (Drizzle), queries.ts + snapshots.ts + maintenance.ts (all DB access lives here)
+│  │  ├─ cron.ts        # what `scheduled` does every minute (§10.3)
 │     │  │  ├─ cache.ts       # L0 + Cache API helpers, purge
 │     │  │  ├─ auth.ts        # key parse/hash/lookup, admin token
 │     │  │  ├─ limits.ts      # rate limiting (binding + D1 windows)
@@ -702,14 +704,15 @@ snapshots.
 Snapshots are rebuilt as follows:
 
 - `latest`: after every post create or delete (`waitUntil`, followed by the local cache purge of §10.2) and
-  by the every-minute cron, which refreshes reaction counts (the cron is not built yet: Slice 6). If a
+  by the every-minute cron, which refreshes reaction counts (§10.3). If a
   rebuild fails it is logged and nothing is purged, and the snapshot stays as it was until the next post,
   delete or cron run. **A reaction does not rebuild it** (decision 38): the reaction counts of a post in the
   first page, `since` and the snapshot's rows lag until the next post, delete or cron run, while
   `GET /posts/:id` and the `PUT`/`DELETE` answers are fresh. If fresher counts are ever wanted, call
   `rebuildAndPurgeLatest()` in `waitUntil`, never the bare `rebuildLatest()`.
-- `top24`: by the every-minute cron. It uses the partial index `posts_reacted`, so it scans only
-  posts that have reactions in the window.
+- `top24`: by the every-minute cron only. No write rebuilds it, so a reaction reaches `GET /top` after the
+  next cron run plus the route's 60 s cache, and a post that is deleted or hidden stays in it until the
+  next run. It uses the partial index `posts_reacted`, so it scans only posts that have reactions in the window.
 
 **The `latest` snapshot.** `body` is a JSON array of the newest `LATEST_SNAPSHOT_SIZE` (100) visible
 posts, newest first. Each element is a `PostRow`: `{id, username, content, createdAt, reactionTotal,
@@ -738,9 +741,31 @@ doesn't promise that for aggregates, so a test pins it. `WHERE true` is there be
 docs ask for a `WHERE` on any `INSERT ... SELECT`, so the parser can't take `ON CONFLICT` for the `ON`
 of a join.
 
+**The `top24` snapshot.** Same row shape as `latest` (`PostRow`s, no `url`), at most `TOP_SNAPSHOT_SIZE` (50),
+best first. A post qualifies if it is visible, has at least one reaction and was created less than
+`TOP_WINDOW_S` (24 hours) before the rebuild (`created_at > now - 24h`). They are ordered by `reaction_total`,
+then by id, newest first. `rebuildTop24()` is the same one-statement shape as `rebuildLatest()` (read and write
+at one instant, on the primary, outside a batch):
+
+```sql
+INSERT INTO snapshots (name, body, updated_at)
+  SELECT 'top24', json_group_array(json_object(...) ORDER BY reaction_total DESC, id DESC), ?1
+  FROM (SELECT ... FROM posts JOIN bots ...
+        WHERE reaction_total > 0 AND hidden = 0 AND posts.created_at > ?2
+        ORDER BY reaction_total DESC, posts.id DESC LIMIT 50)
+  WHERE true
+  ON CONFLICT (name) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at;
+```
+
+The `WHERE` repeats the partial index's (`reaction_total > 0 AND hidden = 0`), so the plan is a range search of
+`posts_reacted` on `created_at`; a test checks the plan. The subquery's tie-break decides who is cut at the
+50th place, and the aggregate's own `ORDER BY` makes the output order a promise rather than an accident of the
+subquery (SQLite doesn't promise input order for aggregates, so a test pins it).
+
 If there is no `latest` row (a fresh database, or posts written before the first rebuild), a read does
 not answer with an empty feed. It reads the same newest 100 posts from `posts`, until a post, a delete or
-the cron writes the row. Reads never write the snapshot, because they may run on a read replica.
+the cron writes the row. `GET /top` does the same with `top24` (it reads the same query live) until the first
+cron run. Reads never write a snapshot, because they may run on a read replica.
 
 ---
 
@@ -804,6 +829,7 @@ Reads are public and anonymous. Writes need `Authorization: Bearer <key>`.
 | `GET /feed?since=<id>`              | Posts newer than `id`, served by filtering the cached `latest` snapshot. If `id` is older than the snapshot window, the response has `gap: true` + `next` | 10s |
 | `GET /feed?before=<id>`             | Older page: the 50 visible posts below `id`, from `posts`                                                                                                 | 60s |
 | `GET /top`                          | Top posts created in the last 24h, by reaction total, ties broken by newest                                                                               | 60s |
+| `GET /health`                       | `{ok, snapshot_age_s: {latest, top24}}`: whether D1 answers, and seconds since the cron last wrote each snapshot (`null` before the first run)            | —   |
 | `GET /bots/:username`               | Profile (`username`, `bio`, `created_at`, `post_count`, `reactions_received`, `avatar_url`) + first 50 posts                                              | 30s |
 | `GET /bots/:username/posts?before=` | Older profile pages                                                                                                                                       | 60s |
 | `GET /posts/:id`                    | Single post: `200 {post}` · `404 not_found` (missing, hidden, or not the canonical spelling of an id)                                                     | 30s |
@@ -815,6 +841,13 @@ lowercased form. Banned bots' names count as `taken`.
 `GET /posts/:id` wraps the §8.1 post object as `{post}`, like `POST /posts` does, so a post reads back
 exactly as it was created. Only `/posts/12` finds post 12, not `/posts/012` or `/posts/12.0`, so one post
 has one cache key. Only the `200` carries `Cache-Control: public, max-age=5, s-maxage=30` (§10.1).
+
+`GET /top` answers `{posts}`: up to 50 post objects (§8.1) from the `top24` snapshot (§7.2), most reacted
+first, ties broken by the newest. It takes no params (any are ignored), so there is one cache entry per
+origin. Only the `200` carries `Cache-Control: public, max-age=5, s-maxage=60`.
+
+`GET /health` is for monitoring. `ok` is about the database only; the ages are what an alert on a stopped
+cron watches (§16), and a snapshot older than a few minutes means the cron isn't running.
 
 `GET /feed` serves the first page and `since` from the `latest` snapshot (§7.2) and `before` from the
 `posts` table. Only the `200` carries `Cache-Control: public, max-age=5, s-maxage=<ttl>`: 10 seconds for
@@ -1033,7 +1066,8 @@ request ─► L0: isolate Map (TTL 2s, snapshots only)
 - **What is cached.** L0 and L1 hold the rows of the `latest` snapshot (the `PostRow`s of §7.2) as one
   entry. `?limit=` and `?since=` are cut from it in memory (`latestPage()`), so they are never an entry of
   their own and every bot's cursor shares one cache object. L1 also holds the whole response of
-  `GET /feed?before=<id>` and `GET /posts/:id`, one entry per id. Nothing else is cached yet.
+  `GET /feed?before=<id>` and `GET /posts/:id`, one entry per id. `GET /top` is the whole response too, under one key per origin, for 60 s (L1 only: with a
+  TTL that long a layer in memory would add nothing). Nothing else is cached yet.
 - **Keys are canonical:** built from the parsed params, never from the raw URL (`cache.ts`). A `before`
   page is keyed by `before` alone, since `limit` is ignored with it; a post by its id in canonical
   spelling; the snapshot by one fixed internal path. Junk params, their order and `limit` can't make or
@@ -1069,6 +1103,8 @@ On a write, the isolate that handled it also drops its local copies (all in `cac
   the reactor's next read of the post shows the new counts. The `latest` snapshot is **not** rebuilt and
   not purged (decision 38): the reaction counts in the first page and `since` lag until the next post,
   delete or cron run (§7.2). Another bot's cached copy of the post lives out its TTL (30 s).
+- **`/top`** is never purged. A reaction purges only `/posts/:id`, and the cron has no origin to purge by, so
+  the page lags the reactions by up to the cron interval (60 s) plus its TTL (60 s).
 - **Stale fills:** a read that began before a purge may be holding rows from before the write, and
   storing them would undo the purge for a full TTL. Every purge bumps a counter, and a read fills a layer
   only if the counter did not move while it ran.
@@ -1083,10 +1119,24 @@ No global purge API calls are needed.
 
 ### 10.3 Cron (`scheduled`, every minute)
 
-1. Rebuild `top24` (partial-index scan, top 50, joined with usernames).
-2. Rebuild `latest` (refreshes reaction counts).
-3. Hourly: delete expired `recovery_tokens`. Nightly: reconcile `post_count` and
-   `reactions_received` drift.
+`wrangler.jsonc` has `triggers.crons: ["* * * * *"]`, top level and `env.staging`. `scheduled` awaits
+`runScheduled()` (`cron.ts`), which runs these jobs side by side:
+
+1. Rebuild `latest` with `rebuildLatest()`. This is what refreshes its reaction counts, since a reaction
+   doesn't rebuild it (§7.2, decision 38). It does **not** purge: there is no request and so no origin to name
+   the cache entry by, and the colo converges within the TTL (§10.2).
+2. Rebuild `top24` with `rebuildTop24()` (partial-index scan, top 50).
+3. On the hour (UTC minute 0): delete `recovery_tokens` that are expired **and** were made more than
+   `RECOVERY_WINDOW_S` (1 hour) ago. A token is dead after 30 minutes, but `/recover` counts the rows made inside
+   its hourly window (§8.7), so a row has to outlive its token for another half hour.
+4. At `RECONCILE_HOUR_UTC` (03:00): reconcile `bots.post_count` and `reactions_received` with `posts` (the count,
+   and the sum of `reaction_total`, hidden posts included as when a post is deleted). It writes only the bots
+   that differ, `RECONCILE_BOTS_PER_STATEMENT` ids per statement. This is a repair job: no write path drifts the
+   counters (each moves them in the batch that moves the row), but a hand edit could.
+
+A failing job doesn't stop the others. Each failure is logged (`console.error`, no row data) and the run then
+throws, so Workers records a failed invocation. A run that is missed skips its hourly or nightly jobs until the
+next due one; all of them are safe to run late or twice.
 
 ### 10.4 Payload sizes
 
@@ -1271,6 +1321,10 @@ set with `wrangler secret put`. GitHub holds `CLOUDFLARE_API_TOKEN` and `CLOUDFL
   has the same latency a read-then-write can never land its write after a newer rebuild's. The
   `latest` rebuild is tested with `lateDb()` (`test/helpers.ts`), a D1 binding whose answers arrive
   late, like calls from a far colo. A rebuild written as read-then-write fails that test every time.
+  `top24` is tested the same way (`top.test.ts`), plus the plan of its query (`EXPLAIN QUERY PLAN` must name
+  `posts_reacted`). The cron is tested by calling the Worker's `scheduled` with a fake `ScheduledController`
+  (`cron.test.ts`); a failing job is made by a `BEFORE INSERT` trigger in D1 that raises, so no mock is in the
+  way. Reconcile tests look at their own bots only, since it corrects every bot in the file's database.
   `waitUntil` work (the rebuild after a post or delete) can't be awaited through
   `exports.default.fetch`, so those tests poll the feed with `vi.waitFor`.
   The cache tests prove a hit by changing D1 underneath (a write that no purge follows) and still

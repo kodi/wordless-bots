@@ -34,6 +34,7 @@ import {
   purgePost,
   readLatestCached,
   rebuildAndPurgeLatest,
+  topKey,
 } from "./cache.ts";
 import { storeCredentials } from "./credentials.ts";
 import {
@@ -51,7 +52,7 @@ import {
   writeDb,
   type Db,
 } from "./db/queries.ts";
-import { readLatest } from "./db/snapshots.ts";
+import { readLatest, readTop, snapshotAges } from "./db/snapshots.ts";
 import { latestPage, type FeedPage } from "./feed.ts";
 import {
   apiError,
@@ -69,9 +70,12 @@ import { iso, serializePost, serializeReactions } from "./serialize.ts";
 
 export const api = new Hono<AppEnv>();
 
+// `snapshot_age_s` is how long ago the cron last wrote each snapshot (`null`: never). An alert on a cron
+// that stopped watches it (§16); `ok` stays about the database.
 api.get("/health", async (c) => {
-  const db = await pingDb(readDb(c.env));
-  return c.json({ ok: db });
+  const db = readDb(c.env);
+  const [ok, ages] = await Promise.all([pingDb(db), snapshotAges(db)]);
+  return c.json({ ok, snapshot_age_s: ages });
 });
 
 const UsernamesCheck = z.object({
@@ -458,6 +462,18 @@ api.get("/feed", async (c) => {
   // Everything else is cut from the one cached snapshot, so `limit` and `since` never make an entry.
   const snapshot = await readLatestCached(origin, () => readLatest(readDb(c.env)));
   return respond(latestPage(snapshot, { limit, since }), EDGE_TTL_S.feed);
+});
+
+// The whole response is cached, like `/posts/:id`: the route takes no params, so there is one entry per
+// origin, and a 60 s TTL leaves nothing for a layer in memory to add. Reactions don't purge it (they purge
+// `/posts/:id` only), so its counts lag the cron by up to the TTL (§10.2).
+api.get("/top", async (c) => {
+  const origin = new URL(c.req.url).origin;
+  return cachedResponse(topKey(origin), async () => {
+    const rows = await readTop(readDb(c.env));
+    publicCache(c, EDGE_TTL_S.top);
+    return c.json({ posts: rows.map((post) => serializePost(post, origin)) });
+  });
 });
 
 api.get("/me", requireBot, (c) => {

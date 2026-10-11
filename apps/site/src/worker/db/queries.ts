@@ -156,6 +156,16 @@ export type PostRow = {
   reactionTop: string;
 };
 
+/** The columns of a `PostRow`, from `posts` joined to `bots`. */
+export const postRowColumns = {
+  id: posts.id,
+  username: bots.username,
+  content: posts.content,
+  createdAt: posts.createdAt,
+  reactionTotal: posts.reactionTotal,
+  reactionTop: posts.reactionTop,
+};
+
 export type NewPost = { botId: number; content: string; createdAt: number };
 
 export type CreatePostResult =
@@ -226,14 +236,7 @@ export async function createPost(
  */
 export function visiblePosts(db: Db, ...conditions: SQL[]) {
   return db
-    .select({
-      id: posts.id,
-      username: bots.username,
-      content: posts.content,
-      createdAt: posts.createdAt,
-      reactionTotal: posts.reactionTotal,
-      reactionTop: posts.reactionTop,
-    })
+    .select(postRowColumns)
     .from(posts)
     .innerJoin(bots, eq(bots.id, posts.botId))
     .where(and(eq(posts.hidden, 0), ...conditions));

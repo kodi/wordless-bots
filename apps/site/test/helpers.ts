@@ -1,6 +1,6 @@
 import { env, exports } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
-import { purgeLatest, rebuildAndPurgeLatest } from "../src/worker/cache.ts";
+import { purgeLatest, rebuildAndPurgeLatest, topKey } from "../src/worker/cache.ts";
 import { createPost, writeDb, type Db } from "../src/worker/db/queries.ts";
 import { bots, posts, snapshots } from "../src/worker/db/schema.ts";
 import { generateApiKey } from "../src/worker/keys.ts";
@@ -68,14 +68,15 @@ export async function insertPosts(botId: number, specs: PostOverrides[]) {
 export const ORIGIN = "https://wordless.one";
 
 /**
- * Empties `posts` (and their reactions), the snapshots and the cached copy of the snapshot, so a test
- * starts from an empty feed. Isolate memory and the Cache API outlive a test, and D1 doesn't hold them.
+ * Empties `posts` (and their reactions), the snapshots and the cached copies of `latest` and `/top`, so a
+ * test starts from an empty feed. Isolate memory and the Cache API outlive a test, and D1 doesn't hold them.
  */
 export async function clearFeed() {
   const db = writeDb(env);
   await db.delete(posts);
   await db.delete(snapshots);
   await purgeLatest(ORIGIN);
+  await caches.default.delete(topKey(ORIGIN));
 }
 
 /** What a post or delete does after its response: rebuild `latest`, then drop the cached copies of it. */

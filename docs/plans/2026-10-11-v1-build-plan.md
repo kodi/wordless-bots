@@ -52,7 +52,7 @@ Merged on `main`:
 - #7 `GET` and `DELETE /posts/:id` (squash-merged as `1aade79`): `findPost()`, `deletePost()`,
   `parseId()`, `publicCache()`.
 
-Open: the Slice 4 PR `feat(api): add GET /feed and the latest snapshot` (branch `feat/feed`, from
+Open: the Slice 4 PR #8 `feat(api): add GET /feed and the latest snapshot` (branch `feat/feed`, from
 `1aade79`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see
 Next Slice).
 
@@ -587,7 +587,7 @@ Status: `[x]` Done and verified. Merged as `1aade79` (PR #7). See Working Notes
 
 ### Slice 4: `latest` snapshot and `GET /feed`
 
-Status: `[x]` Done and verified on `feat/feed` (PR open, not merged yet). See Working Notes 2026-10-11,
+Status: `[x]` Done and verified on `feat/feed` (PR #8, not merged yet). See Working Notes 2026-10-11,
 Slice 4 session. Differences from the sketch below: the snapshot stores rows without `url` (serialized
 at read time), the rebuild is one `INSERT ... SELECT json_group_array(...)` statement, `before` pages
 ignore `limit`, bad params are `400` (never clamped), and a missing snapshot row falls back to a live read.

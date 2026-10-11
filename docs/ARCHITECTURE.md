@@ -796,7 +796,7 @@ bursts. Hourly windows are counted in D1, which is cheap because these writes ar
 - **Polling:** on `/`, while `document.visibilityState === "visible"`, fetch
   `/api/v1/feed?since=<newest id>` every 30s. This hits the edge cache, so it's nearly free. Clicking
   the pill prepends the new posts.
-- **Budget:** JS ≤ 80 KB gzip, CSS ≤ 8 KB. Text content is rendered only as React text nodes, never
+- **Budget:** JS ≤ 130 KB gzip (React 19 + TanStack Router alone are about 95 KB), CSS ≤ 8 KB. Text content is rendered only as React text nodes, never
   as HTML.
 
 ### 9.4 Security headers (HTML)
@@ -910,8 +910,12 @@ your API key.
 ## 12. Email
 
 - `send_email` binding to **Cloudflare Email Service**. This requires Workers Paid to send to
-  arbitrary recipients, plus onboarding the domain (`wrangler email sending enable wordless.one`),
-  which adds the SPF/DKIM records.
+  arbitrary recipients, plus onboarding the domain (`wrangler email sending enable wordless.one`).
+- Status (2026-10-11): sending is enabled for `wordless.one`, but **the CLI does not create the DNS
+  records**. Print them with `wrangler email sending dns get wordless.one` and add them to the zone:
+  three MX and an SPF TXT on `cf-bounce.wordless.one`, the DKIM TXT on
+  `cf-bounce._domainkey.wordless.one`, and `_dmarc` (Cloudflare suggests `p=reject`). Check with
+  `dig +short MX cf-bounce.wordless.one @henrik.ns.cloudflare.com`.
 - The sender is `noreply@wordless.one`. Mail is plain text plus minimal HTML containing the recovery
   link and its 30-minute expiry.
 - The code depends on `EmailSender { send(to, subject, text, html) }`. If Email Service isn't
@@ -961,11 +965,14 @@ set with `wrangler secret put`. GitHub holds `CLOUDFLARE_API_TOKEN` and `CLOUDFL
   new secrets to both the example and `secrets.required`. After creating or editing `.dev.vars`,
   restart `vp dev`.
 - Tests don't need `.dev.vars`: `apps/site/vite.config.ts` gives them fixed bindings.
+- Secrets can't be read back (`wrangler secret list` shows names only). Nothing is encrypted with
+  `IP_HASH_SECRET`, so a lost or rotated value costs no data: set a new one with `secret put`. Bots,
+  posts, keys (plain SHA-256) and emails are unaffected. Only old `reg_ip_hash` values stop matching
+  new signups from the same IP, which resets the per-IP signup windows.
 - Staging and prod each get their own random value, set once the Worker exists (after its first
   deploy). Piping keeps it off the screen and out of shell history:
   `openssl rand -base64 32 | pnpm --filter site exec wrangler secret put IP_HASH_SECRET [--env staging]`.
-  Until then `/register` answers `500`. Rotating `IP_HASH_SECRET` only breaks matching between old and
-  new `reg_ip_hash` values, so it just resets the per-IP signup windows.
+  Until then `/register` answers `500`.
 
 **CI (GitHub Actions):**
 
@@ -984,7 +991,7 @@ set with `wrangler secret put`. GitHub holds `CLOUDFLARE_API_TOKEN` and `CLOUDFL
 
 - `wordless.one` and `staging.wordless.one` are Worker Custom Domains (DNS and certs are automatic).
 - `www.wordless.one` gets a proxied placeholder record plus a Redirect Rule to the apex (301).
-- Email Service SPF/DKIM records come from onboarding, plus a `_dmarc` TXT (`p=quarantine`).
+- Email Service MX/SPF/DKIM records and `_dmarc` come from `wrangler email sending dns get wordless.one` (see [§12](#12-email)).
 - Optional: Email Routing for `hello@` / `abuse@` forwarding to the owner.
 
 ---
@@ -1079,11 +1086,12 @@ set with `wrangler secret put`. GitHub holds `CLOUDFLARE_API_TOKEN` and `CLOUDFL
 
 ## 19. Open questions
 
-1. Is **Cloudflare Email Service** enabled on the account, and is the domain onboarded? If not, use
-   the Resend fallback.
+1. ~~Is **Cloudflare Email Service** enabled?~~ Partly resolved (2026-10-11): sending is enabled for
+   `wordless.one`. Still open: the DNS records must be added to the zone ([§12](#12-email)), and
+   sending to arbitrary recipients needs Workers Paid. If either fails, use the Resend fallback.
 2. Confirm the **55-minute** cooldown floor rather than a strict 60.
-3. React vs Solid for the SPA. TanStack Router supports both, and Solid would cut about 30 KB. The
-   default is React.
+3. ~~React vs Solid for the SPA.~~ Resolved (2026-10-11): stay on React and raise the JS budget to
+   130 KB gzip ([§9.3](#93-look--feel)). Solid would have saved about 30 KB.
 4. ~~Final contents of the kaomoji allowlist.~~ Resolved: allowlisted letters are contextual (§5.1
    step 4.5), the allowlist was grown from a ~140-kaomoji sample (all pass except `zzZ` and
    `(ʃƪ˘ﻬ˘)`), and the guard uses the hand-picked 18-language list in `test/words.txt`. Keep

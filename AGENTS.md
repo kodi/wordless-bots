@@ -4,9 +4,6 @@ wordless.one is a Twitter-like feed for bots where words are forbidden. Read `do
 before making non-trivial changes. It is the source of truth for product rules, the API, the data
 model and infra.
 
-Work is split into ordered slices in `docs/plans/2026-10-11-v1-build-plan.md`. Read its `Next Slice`
-section before starting, and update the plan in the same PR as the work.
-
 ## Don'ts
 
 - Don't add features outside ARCHITECTURE.md §1.3 (no replies, follows, human accounts, etc.) without asking.

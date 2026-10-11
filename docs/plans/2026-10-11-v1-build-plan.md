@@ -71,6 +71,8 @@ Infra reality:
   check → test → build).
 - The prod and staging D1 ids in `wrangler.jsonc` are filled in. Whether the databases hold the
   migrations is unverified.
+- Email Sending is enabled for `wordless.one` (account tag `132abfb887f74b398992af69fad0eaed`), but
+  its DNS records are **not in the zone yet** (ARCHITECTURE §12). No `send_email` binding yet.
 
 ## Working Notes
 
@@ -92,8 +94,24 @@ Infra reality:
 - The Windows PowerShell snippet in `credentials.ts` was written from docs and never run on Windows.
 - `CF-Connecting-IP` may be absent under `vp dev`. `register` hashes a missing header as `"unknown"`.
   Not yet checked whether the Vite plugin sets it. Slice 1 has to deal with this.
-- The scaffold SPA (React 19 + TanStack Router, hello world) is already **95 KB gzip**, over the §9.3
-  budget of 80 KB. See Open Questions.
+- The scaffold SPA (React 19 + TanStack Router, hello world) was already **95 KB gzip**, over the
+  old §9.3 budget of 80 KB. Resolved below: the budget is now 130 KB.
+
+### 2026-10-11, decisions after PR #4 was opened
+
+- The user decided: keep `AGENTS.md` untouched (the pointer I added was reverted, so the user will
+  point new sessions at this file); stay on React and raise the JS budget to 130 KB gzip (ARCHITECTURE
+  §9.3, §19.3); defer running tests in CI (Slice A) until later.
+- Ran `wrangler email sending enable wordless.one`: it printed "enabled: true" and `wrangler email
+  sending settings wordless.one` shows it enabled (DKIM selector `cf-bounce`, return-path
+  `cf-bounce.wordless.one`). `wrangler email sending dns get wordless.one` lists the five records
+  needed (3 MX + SPF TXT on `cf-bounce.`, DKIM TXT on `cf-bounce._domainkey.`, `_dmarc` TXT with
+  `p=reject`). `dig` against `henrik.ns.cloudflare.com` and 1.1.1.1 returned nothing for all of
+  them, even after a retry 20 s later: **the CLI does not create the DNS records**. They have to be
+  added in the dashboard (or with an API token that can edit DNS). Not done by me: no DNS token.
+- Not verified: whether the account is on Workers Paid (needed to send to arbitrary recipients).
+- `wrangler secret put` against a Worker that doesn't exist was not run. `secret list` says "run
+  `wrangler deploy` first".
 
 ## Open Questions
 
@@ -101,11 +119,10 @@ Ask the user rather than assuming:
 
 1. **Rate Limiting binding** (`ratelimits` in `wrangler.jsonc`): approved? The `TODO(§8.7)`
    comments in `api.ts` have been waiting on this. Blocks Slice 1.1 only.
-2. **Cloudflare Email Service** enabled and `wordless.one` onboarded? (ARCHITECTURE §19.1.) Blocks
-   Slice 9. Fallback is Resend behind the same `EmailSender` interface.
-3. **JS budget vs React** (§9.3 vs §19.3): the scaffold is 95 KB gzip against an 80 KB budget.
-   Options: switch to Solid (§19 estimates about 30 KB less), raise the budget, or trim. Decide
-   before Slice 13.
+2. **Cloudflare Email Service** (ARCHITECTURE §19.1): sending is enabled, but the user must add the
+   DNS records (or provide a DNS-edit token) and confirm Workers Paid. Also confirm the `send_email`
+   binding. Blocks Slice 9. Fallback is Resend behind the same `EmailSender` interface.
+3. ~~JS budget vs React~~ Resolved 2026-10-11: React stays, budget is 130 KB gzip.
 4. **First deploy** of staging and prod, and who sets the remote secrets. Not needed until Slice 14,
    but `/register` returns 500 on any deployed environment until `IP_HASH_SECRET` is set.
 5. **Cron triggers** (`triggers.crons`, needed in Slice 6): treat as infra and confirm.
@@ -121,13 +138,13 @@ Status: `[x]` Done and verified, PR #4 open (not yet merged).
 
 Verification: see Working Notes 2026-10-11.
 
-### Slice A (any time): run tests and build in CI
+### Slice A (later): run tests and build in CI
 
-Status: `[ ]`
+Status: `[ ]` Deferred by the user on 2026-10-11 ("test in ci later"). Don't start it unasked.
 
 - Goal: the 601 tests and the build gate PRs, as §14 describes.
-- Why here: it's independent, tiny, and protects every later slice. Do it first or alongside Slice 1
-  if the user agrees.
+- Why here: it's independent and tiny, and it would protect every later slice. The user chose to
+  do it later.
 - Implement: add `vp test` and `vp run -r build` steps to `.github/workflows/code-quality.yml` (or a
   second workflow; rename the doc's description in §14 to match). Make sure the `wrangler types`
   postinstall and workerd tests work on `ubuntu-latest`.
@@ -286,6 +303,8 @@ Status: `[ ]` Small and independent. Can be pulled forward as a warm-up.
 
 Status: `[ ]` Blocked on Open Question 2.
 
+- First, check the DNS records exist: `dig +short MX cf-bounce.wordless.one @henrik.ns.cloudflare.com`.
+
 - `EmailSender` interface plus the Cloudflare implementation (`send_email` binding: ask first),
   `POST /recover` (always `202`, 3/hour per bot counted on `recovery_by_bot`), `POST
   /recover/confirm` (single-use, 30-minute tokens, `410 token_invalid`). Tests use a fake sender.
@@ -315,7 +334,7 @@ Status: `[ ]`
 
 ### Slice 13: the web UI (several PRs)
 
-Status: `[ ]` Decide Open Question 3 first.
+Status: `[ ]` React stays and the JS budget is 130 KB gzip (decided 2026-10-11).
 
 - 13a router and feed view from the API; 13b `HTMLRewriter` boot-data injection, titles and OG tags,
   security headers (§9.2, §9.4); 13c polling and the `↑ N` pill; 13d profile, permalink, about and
@@ -341,8 +360,8 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 1: register rate limits (hourly window in D1).** Slice A (tests in CI) is a good tiny
-companion PR; ask the user which to take first.
+**Slice 1: register rate limits (hourly window in D1).** Slice A (tests in CI) is deferred by the
+user. `AGENTS.md` is deliberately unchanged, so the user will point you at this file.
 
 Start here:
 

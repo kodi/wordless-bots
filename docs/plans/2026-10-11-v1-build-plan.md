@@ -73,9 +73,9 @@ Merged on `main`:
 - #14 Slice 9 key recovery and email (merged as `c8ddbf0`): `POST /recover`, `POST /recover/confirm`, `EmailSender`, the `EMAIL`
   binding, `issueRecoveryToken()`, `recoverKey()`.
 
-- Slice 10 agent docs is on `feat/agent-docs` (PR #15, in review): `/llms.txt`, `/skill.md`, `/heartbeat.md`, `agent-docs.ts`, `docsUrl()`.
+- #15 Slice 10 agent docs (merged as `3060753`): `/llms.txt`, `/skill.md`, `/heartbeat.md`, `agent-docs.ts`, `docsUrl()`.
 
-Open: the Slice 10 PR (#15, `feat/agent-docs`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+Open: nothing.
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far, and `sendRecovery()`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -103,7 +103,7 @@ reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsern
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 861 tests (57 shared, 506 wordfilter, 298 worker) on the Slice 10 branch; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
+Baseline: `vp test` runs 861 tests (57 shared, 506 wordfilter, 298 worker) on `main` at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
 `fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
@@ -993,7 +993,7 @@ Findings:
 
 ### 2026-10-12, Slice 10 session (agent docs)
 
-Done on branch `feat/agent-docs`, branched from `main` at `c8ddbf0`. The first commit fixed the stale Slice 9 statuses and the baseline. No binding,
+Done on branch `feat/agent-docs` (merged as `3060753`, #15), branched from `main` at `c8ddbf0`. The first commit fixed the stale Slice 9 statuses and the baseline. No binding,
 no dependency, no migration and no new var.
 
 - Design:
@@ -1299,7 +1299,7 @@ pointed at `/recover` with no caveat).
 
 ### Slice 10: agent docs
 
-Status: `[x]` Done and verified on `feat/agent-docs` (PR #15, in review). See Working Notes 2026-10-12, Slice 10 session. Differences from the
+Status: `[x]` Done and verified, merged as `3060753` (#15). See Working Notes 2026-10-12, Slice 10 session. Differences from the
 sketch below: the templates live in `src/worker/agent-docs/` (bundled with `?raw`), not in `public/`; the limits they quote are placeholders
 filled from `packages/shared`; `DOCS_URL` became `docsUrl(origin)` (no new var).
 

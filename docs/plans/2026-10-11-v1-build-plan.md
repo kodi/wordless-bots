@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-11 (end of the Slice 4.1 session: the cache layers).
+Last updated: 2026-10-11 (end of the Slice 5 session: reactions).
 
 ## Summary
 
@@ -58,15 +58,17 @@ Merged on `main`:
   `rebuildAndPurgeLatest()`.
 - `852bfae` docs: the Slice 5 reaction quota and snapshot decisions (§18 decisions 37 and 38).
 
-Open: nothing. Slice 5 is next (see Next Slice).
+- Slice 5 reactions is on `feat/reactions` (PR open, not merged yet): `PUT` and `DELETE /posts/:id/reaction`.
+
+Open: the Slice 5 PR. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
-`ip-hash.ts`, `serialize.ts` (`iso()`, `serializePost()`), `feed.ts` (`latestPage()`, the pure paging
+`ip-hash.ts`, `serialize.ts` (`iso()`, `serializePost()`, `serializeReactions()`), `feed.ts` (`latestPage()`, the pure paging
 and gap rules), `cache.ts` (L0 and L1: `readLatestCached()`, `cachedResponse()`, `purgeLatest()`,
 `purgePost()`, `rebuildAndPurgeLatest()` and the `latestKey()`, `feedBeforeKey()`, `postKey()` builders),
-`db/schema.ts`, `db/queries.ts` (`createPost()`, `findPost()`, `deletePost()`,
-`visiblePosts()`, `olderPosts()`, `PostRow`) and `db/snapshots.ts` (`rebuildLatest()`, `readLatest()`).
+`db/schema.ts`, `db/queries.ts` (`createPost()`, `findPost()`, `deletePost()`, `reactToPost()`,
+`unreactToPost()`, `visiblePosts()`, `olderPosts()`, `PostRow`) and `db/snapshots.ts` (`rebuildLatest()`, `readLatest()`).
 Tests are in `apps/site/test/` with helpers `insertBot()` (accepts `lastPostAt`, `status`, `bio`,
 `createdAt`, `regIpHash`), `seedPost()` (a post through `createPost()` with no cooldown wait),
 `insertPosts()` (bulk insert, no counters; use it to fill a feed), `clearFeed()` (also purges the cached
@@ -81,10 +83,10 @@ reaction limits), `parseId()` (canonical row id from a URL segment) and `publicC
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed limits, `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 702 tests (49 shared, 506 wordfilter, 147 worker) on `main` at `4de2bab`.
-Before Slice 4.1 (`012c78a`) it was 687.
+Baseline: `vp test` runs 702 tests (49 shared, 506 wordfilter, 147 worker) on `main` at `4de2bab`; 737 (182
+worker) on the Slice 5 branch. Before Slice 4.1 (`012c78a`) it was 687.
 
-Not built yet: top, reactions, profiles, key rotation, `PATCH /me`, recovery, email, admin, form
+Not built yet: top, profiles, key rotation, `PATCH /me`, recovery, email, admin, form
 fallback, cron, the `top24` snapshot, burst rate
 limits (the register hourly limit exists), agent docs (`/skill.md` etc.), all of the real UI,
 Analytics Engine events.
@@ -574,6 +576,90 @@ The user approved both recommendations. Recorded as decisions 37 and 38 in ARCHI
   the `POST /posts` 422 body and fix §8.4; `DELETE` of a reaction that isn't there is `200` with the current counts; decide new
   versus swap in SQL (no pre-read).
 
+### 2026-10-11, Slice 5 session (reactions)
+
+Done on branch `feat/reactions`, branched from `main` at `852bfae` (Slice 4.1 and the decisions commit were
+on `main`). PR open, not merged yet.
+
+- Design (`db/queries.ts`): `reactToPost(db, {botId, postId, emoji, createdAt}, {max, windowMs})` and
+  `unreactToPost(db, botId, postId)`, each one `db.batch()` of query builders (§7.1).
+  - **PUT:** `UPDATE bots SET reactions_received = +1 WHERE <author> AND <may react> AND NOT EXISTS (own row)`,
+    then the upsert as `INSERT ... SELECT ... FROM bots WHERE <may react> AND NOT EXISTS (same emoji) ON CONFLICT
+    (post_id, bot_id) DO UPDATE SET emoji, created_at RETURNING`, then the recount, then four read-backs (post,
+    bot status, own row, the oldest reaction in the window). `<may react>` is: bot active, post visible and not
+    the bot's own, and the bot's _other_ reactions inside the window fewer than `max`.
+  - **New versus swap is decided in SQL** (`NOT EXISTS` on the author counter, placed before the upsert), not from
+    a pre-read, so two parallel first reactions from one bot add 1, not 2.
+  - **Refusals write nothing**, because the two writes share `<may react>`. The recount is derived from the rows, so
+    it runs unconditionally and rewrites identical values on a refusal.
+  - **The read-back orders the reasons:** banned, missing or hidden (404), own post, same emoji already held (200),
+    otherwise the window is full (`rate_limited` with `oldest`). `changed` (from the upsert's `RETURNING`) says
+    whether to purge. A refusal with room in the window throws, since nothing else can refuse an active bot on a
+    visible post.
+  - **DELETE:** counters (`EXISTS` own row) first, then the delete, then the recount and read-backs. No reaction to
+    take back is `200` with the current counts (decided here; §8.4 was silent).
+  - Routes (`api.ts`): ids through `parseId()` (404), `readJson()` + zod (400), `checkReaction()` with
+    `REACTION_MAX_BYTES` (422 with the filter's own code, in the `POST /posts` body shape), then the query.
+    After a change, `await purgePost(origin, id)` before the response; `latest` is not rebuilt (decision 38).
+  - `serializeReactions()` in `serialize.ts` builds `{total, top}` for both the post object and these answers.
+  - `REACTION_HOURLY_MAX` (60), `REACTION_WINDOW_S` (3600) and `REACTION_TOP_SIZE` (5) are in `packages/shared`.
+    `TODO(§8.7)` marks the 20/min burst (Slice 1.1 owns the binding). `wrangler.jsonc` is untouched; no migration.
+- Error mapping, as asked, for the PR: the 422 codes are `contains_words` (letter emoji), `invalid_characters`
+  (text, two emoji), `empty` and `too_long`, with `{matches, hint}` like `POST /posts`. §8.4 said `invalid_emoji`;
+  that was wrong and is gone from the doc.
+- Docs: §7.1 (React, Unreact, how new versus swap is decided), §7.2 and §10.2 (no `latest` rebuild, the lag, the
+  post purge), §8.4 (codes, DELETE semantics), §8.7 (what the hourly count means, the refund), §15.
+- Tests: 35 new in `test/reactions.test.ts` (702 to 737). `assertCounters()` recomputes the totals, tops (bytewise
+  tie-break) and `reactions_received` of the test's own authors from the `reactions` rows; it is scoped per test
+  because `clearFeed()` deletes posts without fixing their authors' counters, so these tests don't call it, and a
+  global check would let one test's drift fail every test after it. The quota rules are tested through
+  `reactToPost()` with a small limit and explicit `createdAt`s (rows inside, at and outside the window edge); one
+  HTTP test uses the real 60.
+
+Verified (all run from the repo root):
+
+- `vp check`: clean (50 files linted and type-checked, 70 formatted).
+- `vp test`: 23 files, **737 passed** (702 baseline + 35 new), 3 full runs in a row; `vp test
+  apps/site/test/reactions.test.ts` passed 10 runs in a row.
+- `vp run -r build`: passed (Worker 99.70 kB gzip, up from 97.34; SPA 94.96 kB gzip).
+- Mutation checks, each reverted with `git checkout` afterwards, whole suite run. All 26 were caught:
+  - `NOT EXISTS` dropped from the author counter (7 failing). Counter placed after the upsert (21).
+  - Self check dropped (1). Hidden filter dropped from the write predicate (1) and from the PUT read-back (1).
+  - Quota `<` to `<=` (6). Window dropped from the count (1: "older than the window ... at its edge"). Own row not
+    excluded (2). The wait taken from the newest, not the oldest, row (2).
+  - Swap not refreshing `created_at` (2). Same-emoji guard dropped (2). Top tie-break dropped (2).
+  - Recount scoped to the wrong post: total (24), top (23), or updating every post (7).
+  - New versus swap decided by a read before the batch (4: the parallel tests only; the HTTP race passes alone, as
+    §15 warns).
+  - Active-bot check dropped from the upsert (1), from the author counter alone (1: needed a banned bot's _first_
+    reaction on a fresh post; a bot with an existing row is blocked by `NOT EXISTS` anyway), from unreact (1).
+  - Unreact: `EXISTS` on the row dropped (2), counter after the delete (4), visible-post check dropped (1).
+  - PUT purge removed (1). DELETE purge removed (1). PUT also rebuilding `latest` (1: "leaves the feed's counts as
+    they were"). `checkReaction()` result ignored (5).
+  - One survived the first round and got a test: the active-bot check on the author counter (above).
+- Live check against the already running `mise run dev` server on :5173 (pid 53728, nothing started or killed):
+  register three bots (own `CF-Connecting-IP` each), `POST /posts`, warm `GET /posts/1`, then `PUT` 🔥 (200
+  `{total:1}`), the next `GET` showed it at once, a swap and a repeated emoji (200), `403 self_reaction`, `422
+  invalid_characters` for `hi`, `400` for `{}`, `401`, `404` for an unknown id, `DELETE` twice (200 both, the author's
+  `reactions_received` 2 then 1), and `/feed` still showing `0` for the post (the snapshot lag). The local D1 was
+  empty before; the probe bots, post, reactions, snapshot row and `sqlite_sequence` row were deleted afterwards.
+
+Findings:
+
+- **`clearFeed()` and counters.** It deletes `posts` (the reactions cascade) but not the authors' counters, so any
+  test that checks counters globally must not use it. `post-delete.test.ts` doesn't check them globally, so it is
+  unaffected.
+- drizzle-orm 0.45.4 _does_ take `onConflictDoUpdate()` on an `insert().select()` and `returning()` on both
+  `insert` and `delete` as batch items. SQLite wants the select to have a `WHERE` (it has one: the predicate), or
+  `ON CONFLICT` parses as the `ON` of a join. `.as("c")` on `count()` plus `orderBy(desc(sql`c`))` in a subquery
+  builds the top-5 recount without a raw `sql` statement.
+- A union member with several `reason` literals doesn't narrow after early returns in TypeScript; the route tests
+  `rate_limited` first.
+- **Refund by deletion.** The author deleting a post removes the reactors' rows, so they get the slots back
+  (accepted, §8.7): it is the cost of counting live rows.
+- Not changed, as instructed: `wrangler.jsonc`, tests-in-CI (Slice A), burst limits (Slice 1.1), `latest` rebuilds,
+  response shapes of the existing routes.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -756,15 +842,17 @@ a purge counter keeps reads that began before a purge from filling afterwards.
 
 ### Slice 5: reactions
 
-Status: `[ ]`
+Status: `[x]` Done and verified on `feat/reactions` (PR open, not merged yet). See Working Notes 2026-10-11,
+Slice 5 session. Differences from the sketch below: new versus swap is decided in SQL, not from a pre-read
+(no drift under parallel first reactions, so nothing for the nightly reconcile to repair there); the 422
+codes are the filter's own (`invalid_emoji` was dropped from §8.4); the quota rules are decisions 37 and 38.
 
 - `PUT` and `DELETE /posts/:id/reaction`: `checkReaction`, `403 self_reaction`, `404`,
   `429 rate_limited` (via `tooManyRequests()`). §8.4 says `422 invalid_emoji`, but `checkReaction` returns its own codes
   (`contains_words`, `invalid_characters`, `empty`, `too_long`). Decide the mapping and fix whichever
   side is wrong in the same PR.
-- The §7.1 batch: upsert, recompute `reaction_total` and `reaction_top`, adjust `reactions_received`
-  from a pre-read of the existing row. Concurrent PUTs from one bot can drift the counter. Note it;
-  the nightly reconcile in Slice 6 repairs it.
+- The §7.1 batch: upsert, recompute `reaction_total` and `reaction_top`, adjust `reactions_received`.
+  (As built, the +1 is decided in SQL with `NOT EXISTS`, so concurrent PUTs from one bot don't drift.)
 - Limits: 60/hour per bot counted in D1 (`reactions_by_bot`), 20/min burst via the binding once
   Slice 1.1 exists. Constants in `packages/shared`. The counting rules are decided (Working Notes, "decisions before Slice 5").
 - No `latest` rebuild after a reaction: purge `/posts/:id` and leave the snapshot's counts to the cron (decided).
@@ -854,26 +942,29 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 5: reactions.** Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the
-Rate Limiting binding (Open Question 1). `AGENTS.md` is deliberately unchanged, so the user will point you at
-this file.
+**Slice 6: `top24`, `GET /top`, cron.** Slice A (tests in CI) is still deferred by the user and Slice 1.1 still
+waits on the Rate Limiting binding (Open Question 1; it also owns the 20/min reaction burst, see the
+`TODO(§8.7)` in `api.ts`). `AGENTS.md` is deliberately unchanged, so the user will point you at this file.
 
 Start here:
 
-1. `git fetch origin && git switch main && git pull`, then `git switch -c feat/reactions`. Slice 4.1 is merged
-   (`4de2bab`, #9). Don't use the `gh` API heavily if it is rate limited; `git` over SSH is unaffected.
-2. Read `AGENTS.md`, the Cross-slice rules, the "Slice 2", "Slice 3" and "Slice 4.1" Working Notes and the Slice 5
-   section above. Then ARCHITECTURE §7.1 (React), §8.4, §8.7 and §15, and `db/queries.ts` (`createPost()`,
-   `deletePost()`: the batch pattern to copy; raw `sql` items with parameters can't go in a D1 batch). The
-   open questions the earlier notes left for this slice: the `422 invalid_emoji` vs `checkReaction` codes
-   mapping, and whether deleting a post should give the reactors their hourly quota back (Slice 3 notes).
-3. `vp test` should report 702 passing before you change anything. If a reaction rebuilds `latest`, use
-   `rebuildAndPurgeLatest()` (Slice 4.1 notes). Test concurrency with `Promise.all` on the query function, and
-   any stale-write rebuild with `lateDb()`.
-   For a live server, a `mise run dev` one may already be running on :5173: reuse it, it reloads on changes.
-   Otherwise run `cd apps/site && vp dev --port 5174 --strictPort`: `vp dev` at the repo root serves no Worker.
-   Never kill a server you didn't start. The local Cache API persists across restarts (`mise run db:reset`
-   clears it).
-4. Ask the user before touching `wrangler.jsonc` bindings.
+1. `git fetch origin && git switch main && git pull`, then `git switch -c feat/top-cron`. Slice 5 should be
+   merged by then; check with `git log origin/main --oneline -3`. If it isn't and the user wants to continue
+   anyway, branch from `feat/reactions`.
+2. **Ask the user before touching `triggers.crons` in `wrangler.jsonc`** (Open Question 5): it is infra.
+3. Read `AGENTS.md`, the Cross-slice rules, the "Slice 4", "Slice 4.1" and "Slice 5" Working Notes and the Slice 6
+   section above. Then ARCHITECTURE §7.2 (snapshots), §8.2 (`GET /top`), §10.1 to §10.3 and §15.
+   - The cron calls `rebuildLatest()` (no origin, no purge) and `rebuildTop24()`. The cron is what refreshes the
+     reaction counts in `latest`, which reactions deliberately don't rebuild (decision 38); say so in the PR.
+   - `rebuildTop24()` uses the `posts_reacted` partial index. Build it like `rebuildLatest()`: one statement
+     that reads and writes, so overlapping rebuilds can't fight. Pin any aggregate order with a test.
+   - The nightly reconcile of `post_count` and `reactions_received` is a repair job only. The reaction path no
+     longer drifts under parallel requests (Slice 5), but a hand edit, a ban or a failed deploy could.
+   - `/health` also reports snapshot age.
+4. `vp test` should report 737 passing before you change anything. Test concurrency with `Promise.all` on the
+   query function, and a stale-write rebuild with `lateDb()`. For a live server, a `mise run dev` one may already
+   be running on :5173: reuse it, it reloads on changes. Otherwise run `cd apps/site && vp dev --port 5174
+   --strictPort`: `vp dev` at the repo root serves no Worker. Never kill a server you didn't start. The local
+   Cache API persists across restarts (`mise run db:reset` clears it).
 5. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this file's
-   Slice 5 is `[x]` with the exact commands under Working Notes, and `Next Slice` points at Slice 6.
+   Slice 6 is `[x]` with the exact commands under Working Notes, and `Next Slice` points at Slice 7.

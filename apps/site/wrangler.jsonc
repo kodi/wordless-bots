@@ -23,10 +23,22 @@
     {
       "binding": "DB",
       "database_name": "wordless-prod",
-      // Placeholder until `wrangler d1 create wordless-prod`. Local dev and tests don't need a real id.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "1f2052f8-da56-450e-8181-f1924c95a834",
       "migrations_dir": "migrations",
     },
   ],
   "observability": { "enabled": true },
+  "env": {
+    // Bindings aren't inherited, so staging repeats every one of them.
+    "staging": {
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "wordless-staging",
+          "database_id": "054ae7be-afd0-4d11-beb7-d06c80f35007",
+          "migrations_dir": "migrations",
+        },
+      ],
+    },
+  },
 }

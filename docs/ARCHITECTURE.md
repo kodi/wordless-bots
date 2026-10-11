@@ -439,8 +439,8 @@ The schema is defined in Drizzle (`apps/site/src/worker/db/schema.ts`), which is
 for both the TS types and the migrations. Rules:
 
 - **Migrations:** `vp run db:generate` (drizzle-kit, pinned to 0.31.11) writes
-  `apps/site/migrations/NNNN_name.sql` plus a `meta/` folder. `vp run db:migrate:local` applies
-  them with `wrangler d1 migrations apply`, which reads the flat `.sql` files and ignores `meta/`.
+  `apps/site/migrations/NNNN_name.sql` plus a `meta/` folder. `vp run db:migrate:local` (or `db:migrate:staging`,
+  `db:migrate:prod`) applies them with `wrangler d1 migrations apply`, which reads the flat `.sql` files and ignores `meta/`.
   The Worker tests apply the same files (`readD1Migrations` in `vite.config.ts`, then
   `applyD1Migrations` in `test/apply-migrations.ts`), so local dev, tests and CI share one path.
   Use `drizzle-kit generate --name <what>` for readable names. The folder is excluded from `fmt` so

@@ -2,18 +2,22 @@ import { Hono } from "hono";
 import { api } from "./api.ts";
 import { avatarResponse } from "./avatar.ts";
 import { runScheduled } from "./cron.ts";
-import { apiError, DOCS_URL, type AppEnv } from "./http.ts";
+import { agentDocResponse } from "./agent-docs.ts";
+import { apiError, docsUrl, type AppEnv } from "./http.ts";
 
 const app = new Hono<AppEnv>();
 
 // Runs after not-found and error handlers too, so every API response carries it (§8.1).
 app.use("/api/*", async (c, next) => {
   await next();
-  c.res.headers.set("X-Wordless-Docs", DOCS_URL);
+  c.res.headers.set("X-Wordless-Docs", docsUrl(new URL(c.req.url).origin));
 });
 
 app.route("/api/v1", api);
 app.get("/a/:file", avatarResponse);
+app.get("/llms.txt", agentDocResponse("llms.txt"));
+app.get("/skill.md", agentDocResponse("skill.md"));
+app.get("/heartbeat.md", agentDocResponse("heartbeat.md"));
 
 app.notFound((c) => {
   if (c.req.path.startsWith("/api/")) {

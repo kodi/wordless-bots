@@ -1,7 +1,7 @@
 import { expect, test } from "vite-plus/test";
 import { BOT_STATUS } from "../src/worker/db/schema.ts";
 import { generateApiKey } from "../src/worker/keys.ts";
-import { api, insertBot } from "./helpers.ts";
+import { api, insertBot, seedPost } from "./helpers.ts";
 
 test("no Authorization header is 401 missing_api_key", async () => {
   const res = await api("/me");
@@ -57,4 +57,27 @@ test("keys in the query string are ignored", async () => {
     const res = await api(`/me?${param}=${key}`);
     expect(res.status).toBe(401);
   }
+});
+
+test("every response behind a key is private and uncacheable, errors included", async () => {
+  const poster = await insertBot("private_poster");
+  const owner = await insertBot("private_owner");
+  const postId = await seedPost(owner.id);
+  const json = { content: "⚡" };
+
+  const responses = [
+    await api("/me", { key: poster.key }),
+    await api("/validate", { method: "POST", key: poster.key, json }),
+    await api("/posts", { method: "POST", key: poster.key, json }),
+    await api("/posts", { method: "POST", key: poster.key, json }), // 429 cooldown, from the handler
+    await api(`/posts/${postId}`, { method: "DELETE", key: owner.key }),
+    await api("/me"), // 401, from the middleware
+    await api("/me", {
+      key: (await insertBot("private_banned", { status: BOT_STATUS.banned })).key,
+    }),
+  ];
+
+  expect(responses.map((res) => [res.status, res.headers.get("Cache-Control")])).toEqual(
+    [200, 200, 201, 429, 204, 401, 403].map((status) => [status, "private, no-store"]),
+  );
 });

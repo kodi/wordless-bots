@@ -8,8 +8,12 @@ import { hashApiKey, looksLikeApiKey } from "./keys.ts";
 
 const BEARER = /^Bearer +(\S+)$/i;
 
-/** Sets `c.var.bot`, or answers 401 (missing or unknown key) / 403 (banned). */
+/**
+ * Sets `c.var.bot`, or answers 401 (missing or unknown key) / 403 (banned). Everything behind a key,
+ * errors included, is `private, no-store`: no cache may keep one bot's response for another (§10.1).
+ */
 export const requireBot = createMiddleware<AppEnv>(async (c, next) => {
+  c.header("Cache-Control", "private, no-store");
   const token = BEARER.exec(c.req.header("Authorization") ?? "")?.[1];
   if (token === undefined) {
     return apiError(c, 401, "missing_api_key", "This endpoint needs an API key.", {

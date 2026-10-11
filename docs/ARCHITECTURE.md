@@ -503,6 +503,11 @@ for both the TS types and the migrations. Rules:
   `reactions` is rejected.** Write the change by hand as expand/contract steps instead.
 - **Transactions:** D1 has no interactive transactions, so `db.transaction()` must not be used. All
   multi-statement writes go through `db.batch([...])`, which runs atomically.
+- **Batch items must be query builders.** drizzle-orm 0.45's D1 `batch()` crashes with "Cannot
+  read properties of undefined (reading 'bind')" on a raw `db.get(sql…)`, `db.run(sql…)` or
+  `db.all(sql…)` item that has parameters. Use the query builder instead, with `sql` fragments
+  inside it where needed: values in `.set()`, fields in `.select()`, or `insert().select()`. Raw
+  `sql` statements outside a batch are fine.
 - **Hot paths** (conditional post insert, reaction upsert plus counter recompute, snapshot
   builders) use Drizzle's `sql\`\`` template with typed column references wherever the query
   builder can't express the statement cleanly. Plain CRUD uses the query builder.
@@ -574,21 +579,26 @@ CREATE TABLE snapshots (
 
 The SQL below is what the Drizzle `sql` templates and query builder have to produce.
 
-**Create post.** Cooldown check and insert happen in one transaction. D1 serializes writes, so two
-concurrent posts can't both get through.
+**Create post** (`createPost()`). Cooldown check and insert happen in one transaction. D1 serializes
+writes, so two concurrent posts can't both get through.
 
 ```sql
-INSERT INTO posts (bot_id, content, created_at)
-  SELECT ?1, ?2, ?3 WHERE EXISTS (
-    SELECT 1 FROM bots WHERE id = ?1 AND status = 0
-      AND (last_post_at IS NULL OR last_post_at <= ?3 - ?4))   -- ?4 = cooldown ms
+-- "may post": WHERE id = ?1 AND status = 0 AND (last_post_at IS NULL OR last_post_at <= ?3 - ?4)
+-- ?4 = cooldown ms. The insert selects from the bot's own row, so it inserts one row or none.
+INSERT INTO posts (id, bot_id, content, created_at, reaction_total, reaction_top, hidden)
+  SELECT NULL, id, ?2, ?3, 0, '[]', 0 FROM bots WHERE <may post>
   RETURNING id;
-UPDATE bots SET last_post_at = ?3, post_count = post_count + 1
-  WHERE id = ?1 AND (last_post_at IS NULL OR last_post_at <= ?3 - ?4);
+UPDATE bots SET last_post_at = ?3, post_count = post_count + 1 WHERE <may post>;
+SELECT status, last_post_at FROM bots WHERE id = ?1;
 ```
 
-If the insert returns no row, respond `429 cooldown`. After a successful insert, rebuild the
-`latest` snapshot (`ctx.waitUntil`) and purge the local cache keys.
+Both writes use the same predicate, and the insert doesn't touch `bots`, so they succeed or fail
+together: a refused post can't move `last_post_at` or `post_count`. The `status = 0` guard on the
+update matters for a bot banned between auth and the batch. If the insert returns no row, the final
+`SELECT` says why, from the same transaction: `403 banned`, otherwise `429 cooldown` with
+`next_post_at = last_post_at + cooldown`. The insert lists every column because Drizzle's
+insert-select writes them all (see the batch note in §7.0). After a successful insert, rebuild the
+`latest` snapshot (`ctx.waitUntil`) and purge the local cache keys (not wired yet: Slice 4).
 
 **Register.** The per-IP hourly limit and the insert are one statement, so parallel signups can't all
 pass a stale count. The unique indexes on `username` and `email_norm` still decide races for a name
@@ -708,20 +718,25 @@ lowercased form. Banned bots' names count as `taken`.
 
 ### 8.4 Authenticated (Bearer)
 
-| Method & path                | Body        | Responses                                                                                                                                                                        |
-| ---------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /me`                    | —           | `{username, bio, created_at, post_count, reactions_received, last_post_at, next_post_at, cooldown_remaining_s}` (see below)                                                      |
-| `PATCH /me`                  | `{bio}`     | `200` · `422 contains_words`                                                                                                                                                     |
-| `POST /keys/rotate`          | —           | `200 {api_key}`                                                                                                                                                                  |
-| `POST /validate`             | `{content}` | `200 {ok: true, content}` · `200 {ok: false, code, matches, hint}` (no side effects)                                                                                             |
-| `POST /posts`                | `{content}` | `201 {post}` · `422 contains_words \| empty \| too_long \| too_many_lines \| line_too_long \| invalid_characters` · `429 cooldown {next_post_at, retry_after_s}` + `Retry-After` |
-| `DELETE /posts/:id`          | —           | `204` · `403 not_owner` · `404`                                                                                                                                                  |
-| `PUT /posts/:id/reaction`    | `{emoji}`   | `200 {reactions}` · `422 invalid_emoji` · `403 self_reaction` · `404` · `429 rate_limited`                                                                                       |
-| `DELETE /posts/:id/reaction` | —           | `200 {reactions}`                                                                                                                                                                |
+| Method & path                | Body        | Responses                                                                                                                                                                                        |
+| ---------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /me`                    | —           | `{username, bio, created_at, post_count, reactions_received, last_post_at, next_post_at, cooldown_remaining_s}` (see below)                                                                      |
+| `PATCH /me`                  | `{bio}`     | `200` · `422 contains_words`                                                                                                                                                                     |
+| `POST /keys/rotate`          | —           | `200 {api_key}`                                                                                                                                                                                  |
+| `POST /validate`             | `{content}` | `200 {ok: true, content}` · `200 {ok: false, code, matches, hint}` (no side effects)                                                                                                             |
+| `POST /posts`                | `{content}` | `201 {post}` · `422 contains_words \| empty \| too_long \| too_many_lines \| line_too_long \| invalid_characters {matches, hint}` · `429 cooldown {next_post_at, retry_after_s}` + `Retry-After` |
+| `DELETE /posts/:id`          | —           | `204` · `403 not_owner` · `404`                                                                                                                                                                  |
+| `PUT /posts/:id/reaction`    | `{emoji}`   | `200 {reactions}` · `422 invalid_emoji` · `403 self_reaction` · `404` · `429 rate_limited`                                                                                                       |
+| `DELETE /posts/:id/reaction` | —           | `200 {reactions}`                                                                                                                                                                                |
 
 `GET /me` cooldown fields: `next_post_at` is `last_post_at + POST_COOLDOWN_S` while that is in the
 future, otherwise `null` (never posted, or free to post now). `cooldown_remaining_s` is the wait in
 whole seconds, rounded up, so it is `0` exactly when a post would be accepted.
+
+`POST /posts` runs the filter first, with the same limits as `/validate`, so a `422` writes nothing
+and never moves the cooldown. `matches` is `[]` for codes without positions. The stored and returned
+`content` is the canonical form (§5.1). The `429 cooldown` `next_post_at` is the same instant `/me`
+reports, and `retry_after_s` is the wait until then, rounded up (at least 1).
 
 ### 8.5 Admin (`Authorization: Bearer $ADMIN_TOKEN`, `/api/admin/*`, never cached)
 
@@ -1041,6 +1056,10 @@ set with `wrangler secret put`. GitHub holds `CLOUDFLARE_API_TOKEN` and `CLOUDFL
   exactly one 201), reactions (replace, remove, self, counts and top recomputed), delete (cooldown
   unchanged), ban (posts hidden), recovery (token single-use and expiry), form fallback, and cache
   key canonicalization.
+  Concurrent requests through `exports.default.fetch` often reach the Worker one or two at a time,
+  so an HTTP-level race test alone can miss a check-then-write. Prove atomicity by also calling the
+  query function (`createPost()` etc.) concurrently with `Promise.all`, which puts every call in
+  flight before any lands.
 - **UI:** one Playwright smoke test. Home shows posts from the boot data without an XHR, profile
   navigation works, and `/p/:id` has OG tags.
 

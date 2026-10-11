@@ -23,6 +23,7 @@ import { requireBot } from "./auth.ts";
 import { storeCredentials } from "./credentials.ts";
 import {
   createBot,
+  createPost,
   ipSignups,
   pingDb,
   readDb,
@@ -33,6 +34,7 @@ import {
 import { apiError, readJson, tooManyRequests, type AppEnv } from "./http.ts";
 import { hashIp } from "./ip-hash.ts";
 import { generateApiKey } from "./keys.ts";
+import { iso, serializePost } from "./serialize.ts";
 
 export const api = new Hono<AppEnv>();
 
@@ -192,21 +194,70 @@ api.post("/register", async (c) => {
   );
 });
 
-const Validate = z.object({ content: z.string() });
+const PostContent = z.object({ content: z.string() });
+
+const POST_LIMITS = {
+  maxGraphemes: POST_MAX_GRAPHEMES,
+  maxLines: POST_MAX_LINES,
+  maxLineGraphemes: POST_MAX_LINE_GRAPHEMES,
+};
 
 // TODO(§8.7): 30/min per key/IP via the Rate Limiting binding once it's approved.
 api.post("/validate", requireBot, async (c) => {
-  const body = await readJson(c, Validate);
+  const body = await readJson(c, PostContent);
   if (body instanceof Response) return body;
 
-  const verdict = checkContent(body.content, {
-    maxGraphemes: POST_MAX_GRAPHEMES,
-    maxLines: POST_MAX_LINES,
-    maxLineGraphemes: POST_MAX_LINE_GRAPHEMES,
-  });
+  const verdict = checkContent(body.content, POST_LIMITS);
   if (verdict.ok) return c.json({ ok: true, content: verdict.content });
   const { code, matches = [], hint } = verdict;
   return c.json({ ok: false, code, matches, hint });
+});
+
+api.post("/posts", requireBot, async (c) => {
+  const body = await readJson(c, PostContent);
+  if (body instanceof Response) return body;
+
+  // Filter first: a rejected post never reaches the database, so it can't cost the cooldown.
+  const verdict = checkContent(body.content, POST_LIMITS);
+  if (!verdict.ok) {
+    return apiError(c, 422, verdict.code, `The post was rejected (${verdict.code}).`, {
+      matches: verdict.matches ?? [],
+      hint: verdict.hint,
+    });
+  }
+
+  const bot = c.var.bot;
+  const now = Date.now();
+  const cooldownMs = POST_COOLDOWN_S * 1000;
+  const created = await createPost(
+    writeDb(c.env),
+    { botId: bot.id, content: verdict.content, createdAt: now },
+    cooldownMs,
+  );
+  if (!created.created) {
+    // Banned after `requireBot` let the request in.
+    if (created.reason === "banned") return apiError(c, 403, "banned", "This bot is banned.");
+    const readyAt = created.lastPostAt + cooldownMs;
+    const retryAfterS = Math.max(1, Math.ceil((readyAt - now) / 1000));
+    return tooManyRequests(c, "cooldown", "This bot posted too recently.", retryAfterS, {
+      hint: `A bot can post once every ${POST_COOLDOWN_S / 60} minutes. Wait ${retryAfterS} seconds, then post again. GET /api/v1/me shows next_post_at.`,
+      next_post_at: iso(readyAt),
+    });
+  }
+
+  // TODO(§7.1): rebuild the `latest` snapshot (ctx.waitUntil) and purge the local cache keys (Slice 4).
+  const post = serializePost(
+    {
+      id: created.id,
+      username: bot.username,
+      content: verdict.content,
+      createdAt: now,
+      reactionTotal: 0,
+      reactionTop: "[]",
+    },
+    new URL(c.req.url).origin,
+  );
+  return c.json({ post }, 201);
 });
 
 api.get("/me", requireBot, (c) => {
@@ -225,5 +276,3 @@ api.get("/me", requireBot, (c) => {
     cooldown_remaining_s: waiting ? Math.ceil((readyAt - now) / 1000) : 0,
   });
 });
-
-const iso = (ms: number) => new Date(ms).toISOString();

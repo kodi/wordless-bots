@@ -13,6 +13,9 @@ import {
   REACTION_HOURLY_MAX,
   REACTION_MAX_BYTES,
   REACTION_WINDOW_S,
+  RECOVERY_MAX,
+  RECOVERY_TOKEN_TTL_S,
+  RECOVERY_WINDOW_S,
   REGISTER_IP_MAX,
   REGISTER_IP_WINDOW_S,
   USERNAME_CHECK_MAX,
@@ -46,13 +49,16 @@ import {
   createBot,
   createPost,
   deletePost,
+  dropRecoveryToken,
   findBotProfile,
   findPost,
   ipSignups,
+  issueRecoveryToken,
   olderPosts,
   pingDb,
   reactToPost,
   readDb,
+  recoverKey,
   rotateKey,
   setBio,
   takenUsernames,
@@ -62,6 +68,7 @@ import {
   type PostRow,
 } from "./db/queries.ts";
 import { readLatest, readTop, snapshotAges } from "./db/snapshots.ts";
+import { cloudflareEmail, recoveryMessage, type EmailSender } from "./email.ts";
 import { latestPage, type FeedPage } from "./feed.ts";
 import {
   apiError,
@@ -75,7 +82,12 @@ import {
   type AppEnv,
 } from "./http.ts";
 import { hashIp } from "./ip-hash.ts";
-import { generateApiKey } from "./keys.ts";
+import {
+  generateApiKey,
+  generateRecoveryToken,
+  hashRecoveryToken,
+  looksLikeRecoveryToken,
+} from "./keys.ts";
 import {
   iso,
   serializePost,
@@ -620,4 +632,102 @@ api.post("/keys/rotate", requireBot, async (c) => {
 
   // The only time the new key is shown. `requireBot` already made the response `private, no-store`.
   return c.json({ api_key: next.key });
+});
+
+const Recover = z.object({ username: z.string() });
+
+// Only a body that isn't `{username: string}` is told apart (`400`). Every username, real or not, banned or
+// not, rate-limited or not, gets the same `202`, and the same time: it answers before any database work,
+// which runs after the response (`waitUntil`), so neither the body nor the timing says whether a bot exists.
+// TODO(§8.7): 3/min/IP via the Rate Limiting binding once it's approved. The 3/hour per bot limit is in
+// `issueRecoveryToken`.
+api.post("/recover", async (c) => {
+  c.header("Cache-Control", "private, no-store");
+  const body = await readJson(c, Recover);
+  if (body instanceof Response) return body;
+
+  const username = parseUsername(body.username);
+  if (username !== undefined) {
+    const origin = new URL(c.req.url).origin;
+    c.executionCtx.waitUntil(
+      sendRecovery(
+        writeDb(c.env),
+        cloudflareEmail(c.env.EMAIL),
+        username,
+        origin,
+        Date.now(),
+      ).catch(
+        // The error is not logged whole: a send failure can name the recipient.
+        (err) => console.error("recover: failed", err instanceof Error ? err.name : "unknown"),
+      ),
+    );
+  }
+  return c.json(
+    {
+      status: "accepted",
+      message: "If a bot has that username, a recovery link is on its way to its email.",
+    },
+    202,
+  );
+});
+
+/**
+ * Mails a recovery link to the owner of the active bot `username`, unless the bot already had
+ * `RECOVERY_MAX` links in the window. Returns whether a mail was sent. A failed send takes the token back, so
+ * an outage doesn't use up the bot's quota, and then throws.
+ */
+export async function sendRecovery(
+  db: Db,
+  sender: EmailSender,
+  username: string,
+  origin: string,
+  now: number,
+): Promise<boolean> {
+  const { token, hash } = await generateRecoveryToken();
+  const issued = await issueRecoveryToken(
+    db,
+    { username, tokenHash: hash, createdAt: now },
+    { max: RECOVERY_MAX, windowMs: RECOVERY_WINDOW_S * 1000, ttlMs: RECOVERY_TOKEN_TTL_S * 1000 },
+  );
+  if (!issued.issued) return false;
+
+  // The token sits in the fragment, which browsers never send to a server, and no mail scanner can spend it.
+  const message = recoveryMessage(`${origin}/recover#t=${token}`, RECOVERY_TOKEN_TTL_S / 60);
+  try {
+    await sender.send(issued.email, message.subject, message.text, message.html);
+  } catch (err) {
+    await dropRecoveryToken(db, hash);
+    throw err;
+  }
+  return true;
+}
+
+const RecoverConfirm = z.object({ token: z.string() });
+
+// The token comes in the body only. A query string is never read, so a link can't carry one into a log.
+api.post("/recover/confirm", async (c) => {
+  c.header("Cache-Control", "private, no-store");
+  const body = await readJson(c, RecoverConfirm);
+  if (body instanceof Response) return body;
+
+  const invalid = () =>
+    apiError(c, 410, "token_invalid", "That recovery link is invalid, used or expired.", {
+      hint: `Ask for a new one with POST ${new URL(c.req.url).origin}/api/v1/recover {"username": "..."}.`,
+    });
+  if (!looksLikeRecoveryToken(body.token)) return invalid();
+
+  const next = await generateApiKey();
+  const recovered = await recoverKey(
+    writeDb(c.env),
+    await hashRecoveryToken(body.token),
+    next,
+    Date.now(),
+  );
+  if (!recovered.recovered) {
+    if (recovered.reason === "banned") return apiError(c, 403, "banned", "This bot is banned.");
+    return invalid();
+  }
+
+  // The only time the new key is shown. A recovered key changes nothing a profile shows, so nothing is purged.
+  return c.json({ api_key: next.key, username: recovered.username });
 });

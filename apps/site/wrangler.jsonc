@@ -27,6 +27,8 @@
       "migrations_dir": "migrations",
     },
   ],
+  // Recovery mail (ARCHITECTURE §12). Sent from noreply@wordless.one; not inherited by env.staging.
+  "send_email": [{ "name": "EMAIL" }],
   // Values come from `wrangler secret put` (deployed) or .dev.vars (local). Not inherited by env.staging.
   "secrets": { "required": ["IP_HASH_SECRET"] },
   "observability": { "enabled": true },
@@ -37,6 +39,7 @@
     "staging": {
       "triggers": { "crons": ["* * * * *"] },
       "secrets": { "required": ["IP_HASH_SECRET"] },
+      "send_email": [{ "name": "EMAIL" }],
       "d1_databases": [
         {
           "binding": "DB",

@@ -10,12 +10,15 @@ import {
   lt,
   lte,
   min,
+  ne,
+  notExists,
   or,
   sql,
   type SQL,
 } from "drizzle-orm";
+import { REACTION_TOP_SIZE } from "@wordless/shared";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
-import { BOT_STATUS, bots, posts } from "./schema.ts";
+import { BOT_STATUS, bots, posts, reactions } from "./schema.ts";
 
 export type Db = DrizzleD1Database;
 
@@ -292,6 +295,226 @@ export async function deletePost(db: Db, botId: number, postId: number): Promise
   ]);
   if (deleted.length > 0) return { deleted: true };
   return { deleted: false, reason: remaining.length > 0 ? "not_owner" : "not_found" };
+}
+
+/** A post's stored reaction counters: what the `reactions` of the §8.1 post object is made from. */
+export type ReactionCounts = { reactionTotal: number; reactionTop: string };
+
+export type ReactResult =
+  /** `changed` is false when the bot had already sent this emoji: nothing was written. */
+  | ({ ok: true; changed: boolean } & ReactionCounts)
+  | { ok: false; reason: "banned" | "not_found" | "self_reaction" }
+  /** `oldest`: when the oldest reaction in the window was sent, the first to age out and free a slot. */
+  | { ok: false; reason: "rate_limited"; oldest: number };
+
+export type UnreactResult =
+  | ({ ok: true; changed: boolean } & ReactionCounts)
+  | { ok: false; reason: "banned" | "not_found" };
+
+/** `posts.reaction_total` and `reaction_top` of one post, recomputed from its `reactions` rows. */
+function recountReactions(db: Db, postId: number) {
+  const total = db.select({ n: count() }).from(reactions).where(eq(reactions.postId, postId));
+  const perEmoji = db
+    .select({ emoji: reactions.emoji, c: count().as("c") })
+    .from(reactions)
+    .where(eq(reactions.postId, postId))
+    .groupBy(reactions.emoji)
+    .orderBy(desc(sql`c`), reactions.emoji)
+    .limit(REACTION_TOP_SIZE)
+    .as("per_emoji");
+  const top = db
+    .select({
+      top: sql<string>`COALESCE(json_group_array(json_array(${perEmoji.emoji}, ${perEmoji.c})), '[]')`,
+    })
+    .from(perEmoji);
+  return db
+    .update(posts)
+    .set({ reactionTotal: sql`${total}`, reactionTop: sql`${top}` })
+    .where(eq(posts.id, postId));
+}
+
+/**
+ * Sends `emoji` as the bot's reaction to a post (§7.1): a new reaction, or a swap of the one it had.
+ * One batch, like `createPost()`:
+ *
+ * 1. the author's `reactions_received` + 1, only if the bot has no reaction here yet. New versus swap
+ *    is decided in SQL, not from a read before the batch, so two parallel first reactions from one bot
+ *    can't both count as new. It goes first because the upsert changes what it looks at;
+ * 2. the upsert, which also refreshes `created_at`, so a swap costs a quota slot only if the old row
+ *    had aged out of the window;
+ * 3. the post's `reaction_total` and `reaction_top`, recomputed from its rows (derived data, so it is
+ *    safe to rewrite even when nothing above changed);
+ * 4. read-backs, which tell a refusal's reason and give the counts for the `200`.
+ *
+ * Steps 1 and 2 share one predicate: the bot is active, the post is visible and isn't the bot's own,
+ * and the bot's other reactions inside the window number fewer than `limit.max`. "Other" leaves the
+ * row being replaced out, so a bot at the limit can still change an emoji it sent a minute ago. Step 2
+ * also skips a row that already holds `emoji`, so repeating a reaction writes nothing and uses no quota.
+ */
+export async function reactToPost(
+  db: Db,
+  reaction: { botId: number; postId: number; emoji: string; createdAt: number },
+  limit: { max: number; windowMs: number },
+): Promise<ReactResult> {
+  const { botId, postId, emoji, createdAt } = reaction;
+  const since = createdAt - limit.windowMs;
+  const othersInWindow = db
+    .select({ n: count() })
+    .from(reactions)
+    .where(
+      and(eq(reactions.botId, botId), ne(reactions.postId, postId), gt(reactions.createdAt, since)),
+    );
+  const mine = (...conditions: SQL[]) =>
+    and(eq(reactions.postId, postId), eq(reactions.botId, botId), ...conditions);
+  const allowed = [
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(posts)
+        .where(and(eq(posts.id, postId), eq(posts.hidden, 0), ne(posts.botId, botId))),
+    ),
+    sql`${othersInWindow} < ${limit.max}`,
+  ];
+  const isActive = and(eq(bots.id, botId), eq(bots.status, BOT_STATUS.active));
+  const author = db.select({ id: posts.botId }).from(posts).where(eq(posts.id, postId));
+  const hasRow = db
+    .select({ one: sql`1` })
+    .from(reactions)
+    .where(mine());
+  const hasSameEmoji = db
+    .select({ one: sql`1` })
+    .from(reactions)
+    .where(mine(eq(reactions.emoji, emoji)));
+
+  const [, upserted, , postRows, botRows, ownRows, windowRows] = await db.batch([
+    db
+      .update(bots)
+      .set({ reactionsReceived: sql`${bots.reactionsReceived} + 1` })
+      .where(
+        and(
+          sql`${bots.id} = ${author}`,
+          notExists(hasRow),
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(bots)
+              .where(isActive),
+          ),
+          ...allowed,
+        ),
+      ),
+    db
+      .insert(reactions)
+      .select(
+        db
+          .select({
+            postId: sql<number>`${postId}`.as("post_id"),
+            botId: bots.id,
+            emoji: sql<string>`${emoji}`.as("emoji"),
+            createdAt: sql<number>`${createdAt}`.as("created_at"),
+          })
+          .from(bots)
+          .where(and(isActive, notExists(hasSameEmoji), ...allowed)),
+      )
+      .onConflictDoUpdate({
+        target: [reactions.postId, reactions.botId],
+        set: { emoji: sql`excluded.emoji`, createdAt: sql`excluded.created_at` },
+      })
+      .returning({ postId: reactions.postId }),
+    recountReactions(db, postId),
+    db
+      .select({
+        authorId: posts.botId,
+        reactionTotal: posts.reactionTotal,
+        reactionTop: posts.reactionTop,
+      })
+      .from(posts)
+      .where(and(eq(posts.id, postId), eq(posts.hidden, 0))),
+    db.select({ status: bots.status }).from(bots).where(eq(bots.id, botId)),
+    db.select({ emoji: reactions.emoji }).from(reactions).where(mine()),
+    db
+      .select({ oldest: min(reactions.createdAt) })
+      .from(reactions)
+      .where(
+        and(
+          eq(reactions.botId, botId),
+          ne(reactions.postId, postId),
+          gt(reactions.createdAt, since),
+        ),
+      ),
+  ]);
+  const post = postRows[0];
+  if (botRows[0]?.status !== BOT_STATUS.active) return { ok: false, reason: "banned" };
+  if (post === undefined) return { ok: false, reason: "not_found" };
+  if (post.authorId === botId) return { ok: false, reason: "self_reaction" };
+  if (ownRows[0]?.emoji === emoji) {
+    return {
+      ok: true,
+      changed: upserted.length > 0,
+      reactionTotal: post.reactionTotal,
+      reactionTop: post.reactionTop,
+    };
+  }
+  // Nothing else refuses a visible post to an active bot, so the window is full.
+  const oldest = windowRows[0]?.oldest;
+  if (oldest === null || oldest === undefined) throw new Error("reaction refused with room left");
+  return { ok: false, reason: "rate_limited", oldest };
+}
+
+/**
+ * Takes back the bot's reaction to a post (§7.1), in one batch like `reactToPost()`: the author's
+ * `reactions_received` - 1 (only if the row exists, so it goes first), the delete, the recount, then
+ * read-backs. The two writes share a predicate: the bot is active and the post is visible. There being no
+ * reaction to take back isn't a refusal: it ends as `ok` with the current counts and `changed: false`.
+ */
+export async function unreactToPost(db: Db, botId: number, postId: number): Promise<UnreactResult> {
+  const mine = and(eq(reactions.postId, postId), eq(reactions.botId, botId));
+  const allowed = [
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(posts)
+        .where(and(eq(posts.id, postId), eq(posts.hidden, 0))),
+    ),
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(bots)
+        .where(and(eq(bots.id, botId), eq(bots.status, BOT_STATUS.active))),
+    ),
+  ];
+  const author = db.select({ id: posts.botId }).from(posts).where(eq(posts.id, postId));
+  const [, deleted, , postRows, botRows] = await db.batch([
+    db
+      .update(bots)
+      .set({ reactionsReceived: sql`${bots.reactionsReceived} - 1` })
+      .where(
+        and(
+          sql`${bots.id} = ${author}`,
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(reactions)
+              .where(mine),
+          ),
+          ...allowed,
+        ),
+      ),
+    db
+      .delete(reactions)
+      .where(and(mine, ...allowed))
+      .returning({ postId: reactions.postId }),
+    recountReactions(db, postId),
+    db
+      .select({ reactionTotal: posts.reactionTotal, reactionTop: posts.reactionTop })
+      .from(posts)
+      .where(and(eq(posts.id, postId), eq(posts.hidden, 0))),
+    db.select({ status: bots.status }).from(bots).where(eq(bots.id, botId)),
+  ]);
+  if (botRows[0]?.status !== BOT_STATUS.active) return { ok: false, reason: "banned" };
+  const post = postRows[0];
+  if (post === undefined) return { ok: false, reason: "not_found" };
+  return { ok: true, changed: deleted.length > 0, ...post };
 }
 
 /** Drizzle wraps the driver error, so look through `cause` too. */

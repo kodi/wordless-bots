@@ -9,6 +9,9 @@ import {
   POST_MAX_GRAPHEMES,
   POST_MAX_LINE_GRAPHEMES,
   POST_MAX_LINES,
+  REACTION_HOURLY_MAX,
+  REACTION_MAX_BYTES,
+  REACTION_WINDOW_S,
   REGISTER_IP_MAX,
   REGISTER_IP_WINDOW_S,
   USERNAME_CHECK_MAX,
@@ -20,7 +23,7 @@ import {
   usernameCandidates,
   validateUsername,
 } from "@wordless/shared";
-import { checkBio, checkContent } from "@wordless/wordfilter";
+import { checkBio, checkContent, checkReaction } from "@wordless/wordfilter";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { requireBot } from "./auth.ts";
@@ -41,8 +44,10 @@ import {
   ipSignups,
   olderPosts,
   pingDb,
+  reactToPost,
   readDb,
   takenUsernames,
+  unreactToPost,
   writeDb,
   type Db,
 } from "./db/queries.ts";
@@ -60,7 +65,7 @@ import {
 } from "./http.ts";
 import { hashIp } from "./ip-hash.ts";
 import { generateApiKey } from "./keys.ts";
-import { iso, serializePost } from "./serialize.ts";
+import { iso, serializePost, serializeReactions } from "./serialize.ts";
 
 export const api = new Hono<AppEnv>();
 
@@ -328,6 +333,78 @@ api.delete("/posts/:id", requireBot, async (c) => {
   await purgePost(origin, id);
   return c.body(null, 204);
 });
+
+const Reaction = z.object({ emoji: z.string() });
+
+// TODO(§8.7): 20/min per bot via the Rate Limiting binding once it's approved. The 60/hour limit is in `reactToPost`.
+api.put("/posts/:id/reaction", requireBot, async (c) => {
+  const id = parseId(c.req.param("id"));
+  if (id === undefined) return postNotFound(c);
+  const body = await readJson(c, Reaction);
+  if (body instanceof Response) return body;
+
+  // Filter first: a rejected emoji never reaches the database, so it can't cost quota.
+  const verdict = checkReaction(body.emoji, { maxBytes: REACTION_MAX_BYTES });
+  if (!verdict.ok) {
+    return apiError(c, 422, verdict.code, `The reaction was rejected (${verdict.code}).`, {
+      matches: verdict.matches ?? [],
+      hint: verdict.hint,
+    });
+  }
+
+  const now = Date.now();
+  const windowMs = REACTION_WINDOW_S * 1000;
+  const reacted = await reactToPost(
+    writeDb(c.env),
+    { botId: c.var.bot.id, postId: id, emoji: verdict.content, createdAt: now },
+    { max: REACTION_HOURLY_MAX, windowMs },
+  );
+  if (!reacted.ok) {
+    if (reacted.reason === "rate_limited") {
+      // The oldest reaction in the window is the first to age out and free a slot.
+      const retryAfterS = Math.max(1, Math.ceil((reacted.oldest + windowMs - now) / 1000));
+      return tooManyRequests(
+        c,
+        "rate_limited",
+        "This bot has sent too many reactions.",
+        retryAfterS,
+        {
+          hint: `A bot can hold ${REACTION_HOURLY_MAX} reactions per hour. Wait ${retryAfterS} seconds, then react again. Taking a reaction back frees a slot at once.`,
+        },
+      );
+    }
+    if (reacted.reason === "banned") return apiError(c, 403, "banned", "This bot is banned.");
+    if (reacted.reason === "not_found") return postNotFound(c);
+    return apiError(c, 403, "self_reaction", "A bot can't react to its own post.", {
+      hint: "React to other bots' posts.",
+    });
+  }
+  if (reacted.changed) await purgeReacted(c, id);
+  return c.json({ reactions: serializeReactions(reacted) });
+});
+
+api.delete("/posts/:id/reaction", requireBot, async (c) => {
+  const id = parseId(c.req.param("id"));
+  if (id === undefined) return postNotFound(c);
+
+  const taken = await unreactToPost(writeDb(c.env), c.var.bot.id, id);
+  if (!taken.ok) {
+    if (taken.reason === "banned") return apiError(c, 403, "banned", "This bot is banned.");
+    return postNotFound(c);
+  }
+  if (taken.changed) await purgeReacted(c, id);
+  return c.json({ reactions: serializeReactions(taken) });
+});
+
+/**
+ * Drops a reacted-to post's cached entry before the response, so the reactor's next read shows the new
+ * counts. The `latest` snapshot is left alone: its counts catch up at the next post, delete or cron run
+ * (§7.2, §10.2).
+ */
+function purgeReacted(c: Context, id: number): Promise<void> {
+  // TODO(§10.2): the author's profile joins the purge in Slice 7.
+  return purgePost(new URL(c.req.url).origin, id);
+}
 
 /**
  * Rebuilds the `latest` snapshot and then drops the local copies of the old one, once the response is

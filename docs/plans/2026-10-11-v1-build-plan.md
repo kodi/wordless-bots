@@ -58,9 +58,9 @@ Merged on `main`:
   `rebuildAndPurgeLatest()`.
 - `852bfae` docs: the Slice 5 reaction quota and snapshot decisions (§18 decisions 37 and 38).
 
-- Slice 5 reactions is on `feat/reactions` (PR open, not merged yet): `PUT` and `DELETE /posts/:id/reaction`.
+- Slice 5 reactions is on `feat/reactions` (PR #10, not merged yet): `PUT` and `DELETE /posts/:id/reaction`.
 
-Open: the Slice 5 PR. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+Open: the Slice 5 PR #10. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -579,7 +579,7 @@ The user approved both recommendations. Recorded as decisions 37 and 38 in ARCHI
 ### 2026-10-11, Slice 5 session (reactions)
 
 Done on branch `feat/reactions`, branched from `main` at `852bfae` (Slice 4.1 and the decisions commit were
-on `main`). PR open, not merged yet.
+on `main`). PR #10, not merged yet.
 
 - Design (`db/queries.ts`): `reactToPost(db, {botId, postId, emoji, createdAt}, {max, windowMs})` and
   `unreactToPost(db, botId, postId)`, each one `db.batch()` of query builders (§7.1).
@@ -842,7 +842,7 @@ a purge counter keeps reads that began before a purge from filling afterwards.
 
 ### Slice 5: reactions
 
-Status: `[x]` Done and verified on `feat/reactions` (PR open, not merged yet). See Working Notes 2026-10-11,
+Status: `[x]` Done and verified on `feat/reactions` (PR #10, not merged yet). See Working Notes 2026-10-11,
 Slice 5 session. Differences from the sketch below: new versus swap is decided in SQL, not from a pre-read
 (no drift under parallel first reactions, so nothing for the nightly reconcile to repair there); the 422
 codes are the filter's own (`invalid_emoji` was dropped from §8.4); the quota rules are decisions 37 and 38.

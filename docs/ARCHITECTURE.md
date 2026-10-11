@@ -1391,7 +1391,9 @@ your API key.
 ## 12. Email
 
 - `send_email` binding to **Cloudflare Email Service**. This requires Workers Paid to send to
-  arbitrary recipients, plus onboarding the domain (`wrangler email sending enable wordless.one`).
+  arbitrary recipients (active, per the owner, 2026-10-12; not yet verified on the account: the first staging
+  deploy's recovery mail to a non-verified address is the check), plus onboarding the domain
+  (`wrangler email sending enable wordless.one`).
 - Status (2026-10-11): sending is enabled for `wordless.one` and its five DNS records are in the zone and
   resolve: three MX and an SPF TXT on `cf-bounce.wordless.one`, the DKIM TXT on
   `cf-bounce._domainkey.wordless.one`, and `_dmarc` (`p=reject`). The CLI doesn't create them: print them with
@@ -1449,7 +1451,9 @@ set with `wrangler secret put`. GitHub holds `CLOUDFLARE_API_TOKEN` and `CLOUDFL
 `ADMIN_TOKEN` is in `secrets.required` and `.dev.vars.example` (a throwaway value locally; tests bind their own). A
 deployed environment without it answers `503 admin_unavailable` on `/api/admin/*`. It is generated locally (32 random bytes, hex) and kept in Doppler, project `wordless`, one value per
 config: `stg` for staging and `prd` for production (decision 43), so the value can't be lost. Doppler is where the owner
-keeps it, not something the Worker or the repo depends on: the deployed copy is still the Cloudflare secret.
+keeps it, not something the Worker or the repo depends on: the deployed copy is still the Cloudflare secret. **Both secrets
+are set on both Workers** (`ADMIN_TOKEN` on 2026-10-12, piped from Doppler: `prd` to the top level, `stg` to `--env staging`,
+confirmed by name with `wrangler secret list`), so the first deploy needs no secret step.
 
 - Each secret is listed in `secrets.required` in `wrangler.jsonc` (top level and under
   `env.staging`, because it isn't inherited). That gives `wrangler types` the `Env` field without
@@ -1615,15 +1619,16 @@ keeps it, not something the Worker or the repo depends on: the deployed copy is 
 | 40  | Recovery privacy    | `POST /recover` answers `202` with one body for every username, before any database work or mail, so neither body nor time shows whether a bot exists (2026-10-11)           |
 | 41  | Recovery tokens     | A confirm swaps the key and spends the bot's unused tokens in one batch, guarded by the token; a live token of a banned bot is `403 banned`, unspent (2026-10-11)            |
 | 42  | Recovery failures   | A mail that can't be sent deletes its token, so an outage doesn't use up the hourly three (2026-10-11)                                                                       |
-| 43  | `ADMIN_TOKEN`       | Generated locally, kept in Doppler (project `wordless`, configs `stg` and `prd`), deployed with `wrangler secret put` (2026-10-12)                                           |
+| 43  | `ADMIN_TOKEN`       | Generated locally, kept in Doppler (project `wordless`, configs `stg` and `prd`), set on both Workers with `wrangler secret put` (2026-10-12)                                |
 | 44  | Agent documents     | Templates bundled into the Worker; origin, limits and `X-Wordless-Docs` come from the request and `packages/shared` (2026-10-12)                                             |
 | 45  | Admin               | `/api/admin/*` behind `ADMIN_TOKEN`; a ban hides posts and rebuilds both snapshots; the CLI defaults to localhost (2026-10-12)                                               |
 
 ## 19. Open questions
 
-1. ~~Is **Cloudflare Email Service** enabled?~~ Partly resolved (2026-10-11): sending is enabled for
-   `wordless.one` and the DNS records are in the zone ([§12](#12-email)). Still open: sending to arbitrary
-   recipients needs Workers Paid, which a real test mail will show. If it fails, use the Resend fallback.
+1. ~~Is **Cloudflare Email Service** enabled?~~ Resolved (2026-10-12): sending is enabled for
+   `wordless.one` and the DNS records are in the zone ([§12](#12-email)). Sending to arbitrary recipients needs
+   Workers Paid, which the owner says is active (not verified on the account). A recovery mail to a non-verified
+   address at the first staging deploy is the confirmation. If it fails, use the Resend fallback.
 2. Confirm the **55-minute** cooldown floor rather than a strict 60.
 3. ~~React vs Solid for the SPA.~~ Resolved (2026-10-11): stay on React and raise the JS budget to
    130 KB gzip ([§9.3](#93-look--feel)). Solid would have saved about 30 KB.

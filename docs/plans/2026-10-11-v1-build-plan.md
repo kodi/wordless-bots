@@ -75,10 +75,10 @@ Merged on `main`:
 
 - #15 Slice 10 agent docs (merged as `3060753`): `/llms.txt`, `/skill.md`, `/heartbeat.md`, `agent-docs.ts`, `docsUrl()`.
 
-- Slice 11 admin endpoints and CLI is on `feat/admin` (PR #16, in review): `/api/admin/*`, `requireAdmin`, `db/admin.ts`,
+- #16 Slice 11 admin endpoints and CLI (merged as `8909b7e`): `/api/admin/*`, `requireAdmin`, `db/admin.ts`,
   `scripts/admin.ts` (`pnpm admin`), `ADMIN_TOKEN` in `secrets.required`.
 
-Open: the Slice 11 PR (#16). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+Open: nothing. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far, and `sendRecovery()`), `admin.ts` (the `/api/admin` routes), `auth.ts` (`requireBot`, `requireAdmin`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -106,7 +106,7 @@ reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsern
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 879 tests (57 shared, 506 wordfilter, 316 worker) on the Slice 11 branch; 861 (298 worker) on `main` at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
+Baseline: `vp test` runs 879 tests (57 shared, 506 wordfilter, 316 worker) on `main` at `8909b7e`; 861 (298 worker) at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
 `fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
@@ -117,17 +117,23 @@ Analytics Engine events.
 Infra reality:
 
 - No code is deployed. The Workers `wordless` and `wordless-staging` exist only as empty
-  placeholders that `wrangler secret put` created, and **`IP_HASH_SECRET` is set on both** (the user
-  ran it on 2026-10-11; `wrangler secret list` shows it for prod with `--env=""` and for `--env
-  staging`). Later secrets follow ARCHITECTURE §14.
-- `wrangler.jsonc` has `DB`, `ASSETS`, `EMAIL` (`send_email`, since Slice 9, approved by the user on 2026-10-11, top level and `env.staging`), the `secrets.required` list (`IP_HASH_SECRET` and, since Slice 11, `ADMIN_TOKEN`; the Cloudflare copy of `ADMIN_TOKEN` is not set yet), observability and (since Slice 6, approved by
+  placeholders that `wrangler secret put` created, and **`IP_HASH_SECRET` and `ADMIN_TOKEN` are set on both** (the
+  user ran `IP_HASH_SECRET` on 2026-10-11; `ADMIN_TOKEN` was set on 2026-10-12, piped from Doppler, `prd` to the top level
+  and `stg` to `--env staging`, and confirmed by name with `wrangler secret list`; the values were never read). Later secrets
+  follow ARCHITECTURE §14.
+- The Cloudflare account is `9c3a154e782240a5afd623d860e4fae6` (`wrangler whoami`). It owns both D1 databases and both
+  Workers' secrets.
+- Workers Paid and R2 paid are active, **by the user's word (2026-10-12), not verified on the account**. A recovery mail to a non-verified
+  address at the first staging deploy is the confirmation (Open Question 2).
+- `wrangler.jsonc` has `DB`, `ASSETS`, `EMAIL` (`send_email`, since Slice 9, approved by the user on 2026-10-11, top level and `env.staging`), the `secrets.required` list (`IP_HASH_SECRET` and, since Slice 11, `ADMIN_TOKEN`; both are set as Cloudflare secrets on both Workers), observability and (since Slice 6, approved by
   the user on 2026-10-11) `triggers.crons: ["* * * * *"]` at the top level and in `env.staging`. No `ratelimits` or
   `analytics_engine_datasets`.
 - CI runs only `vp check`. **Tests and build are not in CI** (§14 says the PR pipeline should be
   check → test → build).
 - The prod and staging D1 ids in `wrangler.jsonc` are filled in. Whether the databases hold the
   migrations is unverified.
-- Email Sending is enabled for `wordless.one` (account tag `132abfb887f74b398992af69fad0eaed`), and
+- Email Sending is enabled for `wordless.one` (its Email Sending domain tag is `132abfb887f74b398992af69fad0eaed`, from
+  `pnpm exec wrangler email sending list`; it is not an account id), and
   its five DNS records (3 MX, SPF, DKIM, `_dmarc`) are in the zone and resolve (checked with `dig` against
   `henrik.ns.cloudflare.com` and 1.1.1.1 on 2026-10-11; ARCHITECTURE §12). The `EMAIL` binding exists (Slice 9).
 
@@ -167,7 +173,8 @@ Infra reality:
   `p=reject`). `dig` against `henrik.ns.cloudflare.com` and 1.1.1.1 returned nothing for all of
   them, even after a retry 20 s later: **the CLI does not create the DNS records**. They have to be
   added in the dashboard (or with an API token that can edit DNS). Not done by me: no DNS token.
-- Not verified: whether the account is on Workers Paid (needed to send to arbitrary recipients).
+- Not verified: whether the account is on Workers Paid (needed to send to arbitrary recipients). (The user later said it is, on 2026-10-12;
+  see Open Question 2.)
 - The user then ran `secret put IP_HASH_SECRET` for prod and staging. Wrangler asked to create the
   missing Worker (non-interactive fallback: yes) and uploaded the secret, so no deploy was needed
   first. I confirmed with `wrangler secret list` for both environments. Prod needs `--env=""` to
@@ -987,7 +994,7 @@ Findings:
   subquery built with the builder (`eq(recoveryTokens.botId, bots.id)`) renders qualified names correctly.
 - `wrangler dev` does not print a simulated mail's body, only file paths.
 - `wrangler whoami` shows one account id, `9c3a154e...`, which is not the "account tag" `132abfb8...` recorded under Infra reality for Email
-  Sending. Unexplained (they may be different identifiers); worth a look before Slice 14.
+  Sending. Resolved in the Slice 12 session: `132abfb8…` is the Email Sending domain tag, not an account id (see Infra reality).
 - The `email_in_use` hint had no "recover isn't built yet" caveat to remove; it already pointed at `/api/v1/recover`.
 - A mistake of mine worth a line: a stray `sqlite3` in a shell one-liner read stdin and hung the command for two minutes. A second: a text anchor in
   a plan-editing script matched an older slice's identical sentence and wiped the Slice 5 to 8 notes from the plan; caught from the diff stat
@@ -1063,7 +1070,7 @@ Findings and mistakes:
 
 ### 2026-10-12, Slice 11 session (admin endpoints and CLI)
 
-Done on branch `feat/admin`, branched from `main` at `3060753`. The first commit fixed the stale Slice 10 statuses and the baseline. New: `admin.ts`,
+Done on branch `feat/admin`, branched from `main` at `3060753` (merged as `8909b7e`, #16). The first commit fixed the stale Slice 10 statuses and the baseline. New: `admin.ts`,
 `db/admin.ts`, `scripts/admin.ts`, `test/admin.test.ts`, `requireAdmin` and `sameSecret()`. No dependency, no migration, no binding. `ADMIN_TOKEN` joined
 `secrets.required` (top level and `env.staging`) and `.dev.vars.example`; `pnpm --filter site cf-typegen` regenerated `Env`; the test token is bound in
 `apps/site/vite.config.ts`. Nothing was pushed to Cloudflare, and the Doppler values were never read (tests and the live check use throwaway tokens).
@@ -1121,8 +1128,9 @@ Findings and mistakes:
 - `vp run admin -- --help` passes the `--` through; `parseArgs` would treat the rest as positional, so the CLI drops a leading `--`.
 - Not changed, as instructed: the Rate Limiting binding (Slice 1.1), tests in CI (Slice A), `/top` purging, DNS, Workers Paid, any Cloudflare secret, and the agent docs
   (admin endpoints are not for bots, so `skill.md` doesn't mention them).
-- Carried: Workers Paid unverified (Open Question 2); `wrangler whoami` shows account `9c3a154e…`, which differs from `132abfb8…` in this file; Slice 14 keeps the
-  leftover DNS records and the rule that Worker routes must be exact hostnames.
+- Carried (as left by Slice 11; the first two are resolved, see Open Questions 2 and 4 and Infra reality): Workers Paid unverified; `wrangler whoami` shows
+  account `9c3a154e…`, which differs from `132abfb8…` in this file. Still carried: Slice 14 keeps the leftover DNS records and the rule that Worker
+  routes must be exact hostnames.
 
 ## Open Questions
 
@@ -1131,14 +1139,14 @@ Ask the user rather than assuming:
 1. **Rate Limiting binding** (`ratelimits` in `wrangler.jsonc`): approved? Three `TODO(§8.7)`
    comments in `api.ts` (register 3/min, `/usernames/check`, `/validate`) are waiting on this.
    Blocks Slice 1.1 only.
-2. **Cloudflare Email Service** (ARCHITECTURE §19.1): sending is enabled, the five DNS records are in the zone and the `EMAIL`
-   binding exists (2026-10-11). **Still open: whether the account is on Workers Paid**, which sending to arbitrary recipients needs.
-   The Slice 9 test mail went to the user's own address and was accepted ("Queued for"), which does **not** settle it: an account
-   owner's address may be a verified destination on the free plan. Settle it in the dashboard (Billing) or with a mail to a
-   second, unverified address. The fallback is Resend behind the same `EmailSender` interface; switching needs the user's go-ahead.
+2. ~~**Cloudflare Email Service** (ARCHITECTURE §19.1)~~ Resolved by the user's word, 2026-10-12: Workers Paid and R2 paid are active. **Not
+   verified on the account**; a recovery mail to a non-verified address at the first staging deploy (Slice 14) is the confirmation. Sending is
+   enabled, the five DNS records are in the zone and the `EMAIL` binding exists (2026-10-11). The Slice 9 test mail went to the user's own
+   address and was accepted ("Queued for"), which settles nothing: an account owner's address may be a verified destination on the free plan.
+   The fallback is Resend behind the same `EmailSender` interface; switching needs the user's go-ahead.
 3. ~~JS budget vs React~~ Resolved 2026-10-11: React stays, budget is 130 KB gzip.
-4. **First deploy** of staging and prod (Slice 14), and who sets any new remote secrets. `IP_HASH_SECRET` is already set on both.
-   `ADMIN_TOKEN` is generated and in Doppler (`wordless`, `stg` and `prd`, 2026-10-12) and listed in `secrets.required` (Slice 11), but **not yet a Cloudflare secret**; ask before `wrangler secret put`.
+4. **First deploy** of staging and prod (Slice 14); only that remains. `IP_HASH_SECRET` and `ADMIN_TOKEN` are set on both Workers
+   (`ADMIN_TOKEN` on 2026-10-12, from Doppler `prd` to the top level and `stg` to `--env staging`). Ask before any new `wrangler secret put`.
 5. ~~Cron triggers~~ Resolved 2026-10-11: the user approved `triggers.crons: ["* * * * *"]` (Slice 6).
 6. ~~What `cursor` is when the feed is empty.~~ Resolved in Slice 4: it echoes the caller's `since`, or
    `0` with none (ARCHITECTURE §8.1).
@@ -1375,15 +1383,15 @@ filled from `packages/shared`; `DOCS_URL` became `docsUrl(origin)` (no new var).
 
 ### Slice 11: admin endpoints and CLI
 
-Status: `[x]` Done and verified on `feat/admin`. See Working Notes 2026-10-12, Slice 11 session.
+Status: `[x]` Done and verified; merged as `8909b7e` (#16). See Working Notes 2026-10-12, Slice 11 session.
 
 - `/api/admin/*` with `ADMIN_TOKEN` (add it to `secrets.required` and `.dev.vars.example`) and
   `scripts/admin.ts`. Ban hides all of the bot's posts and rebuilds snapshots.
 - **The token exists already** (user's go-ahead, 2026-10-12): Doppler project `wordless`, configs `stg` and `prd`, secret `ADMIN_TOKEN`, a
   different 64-hex value in each, generated locally. Read it with `doppler secrets get ADMIN_TOKEN --project wordless --config stg --plain`
   (use `prd` for production) and never print it. `scripts/admin.ts` can read it from `doppler run` or the environment. The Cloudflare copy
-  (`wrangler secret put ADMIN_TOKEN`, and `--env staging`) is not set yet: do it at the first deploy (Slice 14), piping the value from
-  Doppler, and ask first. A local `.dev.vars` value stays a throwaway (nothing was added to the Doppler `dev` config).
+  (`wrangler secret put ADMIN_TOKEN`, and `--env staging`) was set on both Workers on 2026-10-12, piped from Doppler (`prd` to the top level,
+  `stg` to `--env staging`) and confirmed by name with `wrangler secret list`. A local `.dev.vars` value stays a throwaway (nothing was added to the Doppler `dev` config).
 
 ### Slice 12: form fallback
 
@@ -1406,8 +1414,9 @@ Status: `[ ]` React stays and the JS budget is 130 KB gzip (decided 2026-10-11).
 
 Status: `[ ]`
 
-- Staging deploy on push to `main`, prod on tag, remote migrations, first-deploy secrets, custom
-  domains and DNS (§14). Needs the user's Cloudflare credentials in GitHub secrets.
+- Staging deploy on push to `main`, prod on tag, remote migrations, custom
+  domains and DNS (§14). The secrets step is done (`IP_HASH_SECRET` and `ADMIN_TOKEN` are on both Workers). The first staging deploy also
+  confirms Workers Paid: a recovery mail to a non-verified address must be accepted (Open Question 2). Needs the user's Cloudflare credentials in GitHub secrets.
 - **Ask the user before touching DNS.** The zone still holds records that look left over from the old host (reported 2026-10-12; `dig` only
   shows Cloudflare's proxy IPs, so the origins aren't visible from outside): an apex `A` record `wordless.one` to `46.101.96.143` (proxied), a
   wildcard `*.wordless.one` to the same address, and a `www` `CNAME` to a GoDaddy host (the exact target wasn't recorded; read it in the

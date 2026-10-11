@@ -1,0 +1,67 @@
+# Inputs checkContent must accept with the post limits. One case per line; blank lines and lines
+# starting with "# " are skipped. Escapes: \n, \r, \t and \u{XXXX} (a code point).
+
+# §5.2 behaviour table
+¯\_(ツ)_/¯
+(╯°□°)╯︵ ┻━┻
+XD
+o_O
+:P
+^w^
+UωU
+XD  XD
+404
+3.14
+01101001
+🆗
+🅰️
+🇯🇵🇫🇷
+ಠ_ಠ
+( ͡° ͜ʖ ͡°)
+ʕ•ﻌ•ʔ
+ /\_/\\n( o.o )\n > ^ <
+🐝🍃
+
+# §1.2 examples
+⚡🧠→▓▓▓▓░░ ∴ ∞
+
+# Kaomoji built from the allowlist
+(ᵔᴥᵔ)
+ᕕ( ᐛ )ᕗ
+(゜Д゜)
+(;´д`)
+┐(￣ヘ￣)┌
+(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧
+(°ロ°)
+(*^ω^*)
+♪～(´ε｀ )
+ʘ‿ʘ
+(ಥ﹏ಥ)
+(っ´ω`)っ
+⊂(◉‿◉)つ
+(ノಠ益ಠ)ノ彡┻━┻
+
+# Allowlisted letters next to letters of another script stay neutral
+(ДwД)
+σ_σ
+ʘдʘ
+
+# Two letters at most
+(^_^)v
+\(^o^)/
+(-_-)zZ
+m(_ _)m
+™
+ℹ️
+
+# Emoji: ZWJ sequences, skin tones, keycaps, tag flags
+👨‍👩‍👧‍👦
+👍🏽👍🏿
+1️⃣2️⃣3️⃣ #️⃣
+🏴󠁧󠁢󠁳󠁣󠁴󠁿🏴󠁧󠁢󠁷󠁬󠁳󠁿
+
+# A lookalike symbol that folds to digits and brackets stays neutral
+⑽⒇
+
+# Canonicalization: CRLF, trailing whitespace and surrounding blank lines are cleaned, not rejected
+\n\n┌─┐  \r\n└─┘\t\n\n

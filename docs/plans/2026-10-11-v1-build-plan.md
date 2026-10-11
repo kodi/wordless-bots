@@ -54,7 +54,7 @@ Merged on `main`:
 - #8 `GET /feed` and the `latest` snapshot (squash-merged as `012c78a`): `rebuildLatest()`,
   `readLatest()`, `latestPage()`, `EDGE_TTL_S`, and `private, no-store` on everything behind a key.
 
-Open: the Slice 4.1 PR `feat(cache): add L0 and L1 read caches with a local purge on writes` (branch
+Open: the Slice 4.1 PR #9 `feat(cache): add L0 and L1 read caches with a local purge on writes` (branch
 `feat/cache`, from `012c78a`). Check with `git fetch origin && git log origin/main --oneline -3` before
 branching (see Next Slice).
 
@@ -456,7 +456,7 @@ Findings:
 
 ### 2026-10-11, Slice 4.1 session (cache layers)
 
-Done on branch `feat/cache`, branched from `main` at `012c78a` (PR #8 was merged). Not merged yet.
+Done on branch `feat/cache` (PR #9), branched from `main` at `012c78a` (PR #8 was merged). Not merged yet.
 
 - Design (`cache.ts`):
   - **What is cached.** L0 (a `Map` slot in isolate memory, `ISOLATE_TTL_S` = 2) and L1 (`caches.default`,
@@ -719,7 +719,7 @@ ignore `limit`, bad params are `400` (never clamped), and a missing snapshot row
 
 ### Slice 4.1: cache layers
 
-Status: `[x]` Done and verified on `feat/cache` (PR not merged yet). See Working Notes 2026-10-11,
+Status: `[x]` Done and verified on `feat/cache` (PR #9, not merged yet). See Working Notes 2026-10-11,
 Slice 4.1 session. Differences from the sketch below: L0 and L1 cache the snapshot **rows** (not a response)
 and `limit` and `since` are applied in memory; `before` pages and `/posts/:id` are cached whole; the L1 keys
 start with the origin; the purge is `rebuildAndPurgeLatest()` (rebuild, then purge) and the cron won't purge;

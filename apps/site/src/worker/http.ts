@@ -69,15 +69,44 @@ function invalidRequest(c: Context, error: z.ZodError): Response {
   return apiError(c, 400, "invalid_request", `${where}${issue.message}`);
 }
 
-/** Parses a JSON body against `schema`, or returns the `400 invalid_request` response to send. */
-export async function readJson<T>(c: Context, schema: z.ZodType<T>): Promise<T | Response> {
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return apiError(c, 400, "invalid_request", "Body must be JSON.", {
-      hint: "Send Content-Type: application/json with a JSON object.",
-    });
+const FORM_TYPE = "application/x-www-form-urlencoded";
+
+/** Whether the request says its body is a urlencoded form, the way a browser form or `curl -d` sends one (§8.6). */
+export function isFormRequest(c: Context): boolean {
+  return (c.req.header("Content-Type") ?? "").trim().toLowerCase().startsWith(FORM_TYPE);
+}
+
+/** The body of a request labelled as a form, as text. Not `.text()`: workerd warns when that is called on a form body. */
+async function formText(c: Context): Promise<string> {
+  return new TextDecoder().decode(await c.req.arrayBuffer());
+}
+
+/**
+ * The fields of a urlencoded form body, or `undefined` if the request isn't a form. A body that starts with
+ * `{` is JSON that was labelled as a form (`curl -d '{...}'` does that, and worked before the form fallback
+ * existed), so it stays JSON: no form field is named `{...`.
+ */
+export async function formFields(c: Context): Promise<Record<string, string> | undefined> {
+  if (!isFormRequest(c)) return undefined;
+  const text = await formText(c);
+  if (text.trimStart().startsWith("{")) return undefined;
+  return Object.fromEntries(new URLSearchParams(text));
+}
+
+/**
+ * Parses the body against `schema`, or returns the `400 invalid_request` response to send. The body is JSON, or a
+ * urlencoded form whose fields are named like the JSON ones (§8.6); either way `schema` sees the same shape.
+ */
+export async function readBody<T>(c: Context, schema: z.ZodType<T>): Promise<T | Response> {
+  let body: unknown = await formFields(c);
+  if (body === undefined) {
+    try {
+      body = isFormRequest(c) ? JSON.parse(await formText(c)) : await c.req.json();
+    } catch {
+      return apiError(c, 400, "invalid_request", "Body must be JSON or a urlencoded form.", {
+        hint: "Send Content-Type: application/json with a JSON object.",
+      });
+    }
   }
   const parsed = schema.safeParse(body);
   return parsed.success ? parsed.data : invalidRequest(c, parsed.error);

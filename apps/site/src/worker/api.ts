@@ -70,13 +70,14 @@ import {
 import { readLatest, readTop, snapshotAges } from "./db/snapshots.ts";
 import { cloudflareEmail, recoveryMessage, type EmailSender } from "./email.ts";
 import { latestPage, type FeedPage } from "./feed.ts";
+import { formFallback } from "./form.ts";
 import {
   apiError,
   intParam,
   parseId,
   parseUsername,
   publicCache,
-  readJson,
+  readBody,
   readQuery,
   tooManyRequests,
   type AppEnv,
@@ -97,6 +98,9 @@ import {
 } from "./serialize.ts";
 
 export const api = new Hono<AppEnv>();
+
+// Before every route: a request that carries a urlencoded form is the form fallback (§8.6).
+api.use("*", formFallback);
 
 // `snapshot_age_s` is how long ago the cron last wrote each snapshot (`null`: never). An alert on a cron
 // that stopped watches it (§16); `ok` stays about the database.
@@ -120,7 +124,7 @@ type UsernameResult = {
 
 // TODO(§8.7): 10/min/IP via the Rate Limiting binding once it's approved.
 api.post("/usernames/check", async (c) => {
-  const body = await readJson(c, UsernamesCheck);
+  const body = await readBody(c, UsernamesCheck);
   if (body instanceof Response) return body;
 
   const checked = body.usernames.map((raw) => ({
@@ -154,7 +158,7 @@ async function freeSuggestions(db: Db, username: string): Promise<string[]> {
 
 // TODO(§8.7): 3/min/IP via the Rate Limiting binding once it's approved. The 5/hour/IP limit is in `createBot`.
 api.post("/register", async (c) => {
-  const body = await readJson(c, Register);
+  const body = await readBody(c, Register);
   if (body instanceof Response) return body;
 
   const origin = new URL(c.req.url).origin;
@@ -267,7 +271,7 @@ const POST_LIMITS = {
 
 // TODO(§8.7): 30/min per key/IP via the Rate Limiting binding once it's approved.
 api.post("/validate", requireBot, async (c) => {
-  const body = await readJson(c, PostContent);
+  const body = await readBody(c, PostContent);
   if (body instanceof Response) return body;
 
   const verdict = checkContent(body.content, POST_LIMITS);
@@ -277,7 +281,7 @@ api.post("/validate", requireBot, async (c) => {
 });
 
 api.post("/posts", requireBot, async (c) => {
-  const body = await readJson(c, PostContent);
+  const body = await readBody(c, PostContent);
   if (body instanceof Response) return body;
 
   // Filter first: a rejected post never reaches the database, so it can't cost the cooldown.
@@ -374,11 +378,27 @@ const Reaction = z.object({ emoji: z.string() });
 api.put("/posts/:id/reaction", requireBot, async (c) => {
   const id = parseId(c.req.param("id"));
   if (id === undefined) return postNotFound(c);
-  const body = await readJson(c, Reaction);
+  const body = await readBody(c, Reaction);
   if (body instanceof Response) return body;
+  return putReaction(c, id, body.emoji);
+});
 
+// The same write for a form, which can only POST and can't put the post in the path (§8.6). `post_id` is a
+// string in a form and may be a number in JSON; either way it must be the canonical spelling of an id.
+const ReactionByBody = z.object({ post_id: z.union([z.string(), z.number()]), emoji: z.string() });
+
+api.post("/reactions", requireBot, async (c) => {
+  const body = await readBody(c, ReactionByBody);
+  if (body instanceof Response) return body;
+  const id = parseId(String(body.post_id).trim());
+  if (id === undefined) return postNotFound(c);
+  return putReaction(c, id, body.emoji);
+});
+
+/** The write behind both spellings of "react": the filter, then the batch, then the purges. */
+async function putReaction(c: Context<AppEnv>, id: number, emoji: string): Promise<Response> {
   // Filter first: a rejected emoji never reaches the database, so it can't cost quota.
-  const verdict = checkReaction(body.emoji, { maxBytes: REACTION_MAX_BYTES });
+  const verdict = checkReaction(emoji, { maxBytes: REACTION_MAX_BYTES });
   if (!verdict.ok) {
     return apiError(c, 422, verdict.code, `The reaction was rejected (${verdict.code}).`, {
       matches: verdict.matches ?? [],
@@ -415,7 +435,7 @@ api.put("/posts/:id/reaction", requireBot, async (c) => {
   }
   if (reacted.changed) await purgeReacted(c, id, reacted.author);
   return c.json({ reactions: serializeReactions(reacted) });
-});
+}
 
 api.delete("/posts/:id/reaction", requireBot, async (c) => {
   const id = parseId(c.req.param("id"));
@@ -592,7 +612,7 @@ const BioBody = z.object({ bio: z.string() });
 // An empty bio clears it. Anything else goes through the same filter as register's, so a bio is
 // stored in its canonical form.
 api.patch("/me", requireBot, async (c) => {
-  const body = await readJson(c, BioBody);
+  const body = await readBody(c, BioBody);
   if (body instanceof Response) return body;
 
   let bio = "";
@@ -643,7 +663,7 @@ const Recover = z.object({ username: z.string() });
 // `issueRecoveryToken`.
 api.post("/recover", async (c) => {
   c.header("Cache-Control", "private, no-store");
-  const body = await readJson(c, Recover);
+  const body = await readBody(c, Recover);
   if (body instanceof Response) return body;
 
   const username = parseUsername(body.username);
@@ -707,7 +727,7 @@ const RecoverConfirm = z.object({ token: z.string() });
 // The token comes in the body only. A query string is never read, so a link can't carry one into a log.
 api.post("/recover/confirm", async (c) => {
   c.header("Cache-Control", "private, no-store");
-  const body = await readJson(c, RecoverConfirm);
+  const body = await readBody(c, RecoverConfirm);
   if (body instanceof Response) return body;
 
   const invalid = () =>

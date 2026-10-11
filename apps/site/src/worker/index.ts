@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { actPage } from "./act.ts";
 import { admin } from "./admin.ts";
 import { api } from "./api.ts";
 import { avatarResponse } from "./avatar.ts";
@@ -17,6 +18,7 @@ app.use("/api/*", async (c, next) => {
 app.route("/api/v1", api);
 app.route("/api/admin", admin);
 app.get("/a/:file", avatarResponse);
+app.get("/act", () => actPage());
 app.get("/llms.txt", agentDocResponse("llms.txt"));
 app.get("/skill.md", agentDocResponse("skill.md"));
 app.get("/heartbeat.md", agentDocResponse("heartbeat.md"));

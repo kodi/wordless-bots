@@ -54,9 +54,11 @@ Merged on `main`:
 - #8 `GET /feed` and the `latest` snapshot (squash-merged as `012c78a`): `rebuildLatest()`,
   `readLatest()`, `latestPage()`, `EDGE_TTL_S`, and `private, no-store` on everything behind a key.
 
-Open: the Slice 4.1 PR #9 `feat(cache): add L0 and L1 read caches with a local purge on writes` (branch
-`feat/cache`, from `012c78a`). Check with `git fetch origin && git log origin/main --oneline -3` before
-branching (see Next Slice).
+- #9 Slice 4.1, the cache layers (squash-merged as `4de2bab`): `cache.ts` (L0 and L1, purges),
+  `rebuildAndPurgeLatest()`.
+- `852bfae` docs: the Slice 5 reaction quota and snapshot decisions (§18 decisions 37 and 38).
+
+Open: nothing. Slice 5 is next (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -79,8 +81,8 @@ reaction limits), `parseId()` (canonical row id from a URL segment) and `publicC
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed limits, `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 702 tests (49 shared, 506 wordfilter, 147 worker) on the Slice 4.1 branch.
-On `main` at `012c78a` (before Slice 4.1) it is 687.
+Baseline: `vp test` runs 702 tests (49 shared, 506 wordfilter, 147 worker) on `main` at `4de2bab`.
+Before Slice 4.1 (`012c78a`) it was 687.
 
 Not built yet: top, reactions, profiles, key rotation, `PATCH /me`, recovery, email, admin, form
 fallback, cron, the `top24` snapshot, burst rate
@@ -456,7 +458,7 @@ Findings:
 
 ### 2026-10-11, Slice 4.1 session (cache layers)
 
-Done on branch `feat/cache` (PR #9), branched from `main` at `012c78a` (PR #8 was merged). Not merged yet.
+Done on branch `feat/cache` (PR #9), branched from `main` at `012c78a` (PR #8 was merged). Merged as `4de2bab`.
 
 - Design (`cache.ts`):
   - **What is cached.** L0 (a `Map` slot in isolate memory, `ISOLATE_TTL_S` = 2) and L1 (`caches.default`,
@@ -741,7 +743,7 @@ ignore `limit`, bad params are `400` (never clamped), and a missing snapshot row
 
 ### Slice 4.1: cache layers
 
-Status: `[x]` Done and verified on `feat/cache` (PR #9, not merged yet). See Working Notes 2026-10-11,
+Status: `[x]` Done and verified on `feat/cache`. Merged as `4de2bab` (PR #9). See Working Notes 2026-10-11,
 Slice 4.1 session. Differences from the sketch below: L0 and L1 cache the snapshot **rows** (not a response)
 and `limit` and `since` are applied in memory; `before` pages and `/posts/:id` are cached whole; the L1 keys
 start with the origin; the purge is `rebuildAndPurgeLatest()` (rebuild, then purge) and the cron won't purge;
@@ -858,10 +860,8 @@ this file.
 
 Start here:
 
-1. `git fetch origin && git switch main && git pull`, then `git switch -c feat/reactions`. Slice 4.1 should be
-   merged by then; check with `git log origin/main --oneline -3`. If it isn't and the user wants to continue
-   anyway, branch from `feat/cache`. Don't use the `gh` API heavily if it is rate limited; `git` over SSH is
-   unaffected.
+1. `git fetch origin && git switch main && git pull`, then `git switch -c feat/reactions`. Slice 4.1 is merged
+   (`4de2bab`, #9). Don't use the `gh` API heavily if it is rate limited; `git` over SSH is unaffected.
 2. Read `AGENTS.md`, the Cross-slice rules, the "Slice 2", "Slice 3" and "Slice 4.1" Working Notes and the Slice 5
    section above. Then ARCHITECTURE §7.1 (React), §8.4, §8.7 and §15, and `db/queries.ts` (`createPost()`,
    `deletePost()`: the batch pattern to copy; raw `sql` items with parameters can't go in a D1 batch). The

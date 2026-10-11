@@ -7,7 +7,19 @@ export type Match = { text: string; start: number; end: number };
  * their own script, so `UωU` passes but `πως` doesn't. Changes need a corpus case.
  */
 const KAOMOJI_ALLOWLIST: ReadonlySet<string> = new Set(
-  "ツッシノヽヮロへヘっつωДдεзσಠಥಡఠʖʘᴥᐛᗜᕕᕗᗒᗕᏊᵔᴗᵕㅅع益皿口彡໒",
+  // Eyes, mouths, arms, ears and whiskers by script.
+  [
+    "ツッシノヽヮロへヘっつづヅミ", // kana
+    "ωДдεзσщ", // Greek, Cyrillic
+    "ಠಥಡఠ", // Kannada, Telugu
+    "ʖʘʕʔᴥᴗᶘᶅᵒᵔᵕòóÒÓ", // Latin
+    "ᐛᗜᕕᕗᕙᕦᕤᗒᗕᗣᏊ", // Canadian syllabics, Cherokee
+    "ㅅㅇㅂㅠㅜㆆㆁᆽ", // Hangul jamo
+    "ع", // Arabic
+    "益皿口彡乁", // Han
+    "ง", // Thai
+    "໒", // Lao
+  ].join(""),
 );
 
 const SCRIPTS = [
@@ -22,6 +34,7 @@ const SCRIPTS = [
   "Kannada",
   "Telugu",
   "Lao",
+  "Thai",
   "Canadian_Aboriginal",
   "Cherokee",
 ].map((name) => new RegExp(`^\\p{sc=${name}}$`, "u"));

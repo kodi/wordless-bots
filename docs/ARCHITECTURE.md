@@ -328,8 +328,13 @@ The filter has no dependencies, so callers pass the limits from `packages/shared
       `Ⅻ`→`XII`). Then strip combining marks (`\p{M}`, which kills zalgo), default-ignorable
       code points (ZWSP, ZWNJ, ZWJ, soft hyphen, word joiner, variation selectors, Hangul filler)
       and other format characters (`\p{Cf}`, e.g. U+0600, U+FFF9).
-   5. **Kaomoji allowlist:** a curated set of letters common in kaomoji, checked before and after
-      NFKC: `ツ ッ シ ノ ヽ ヮ ロ へ ヘ っ つ ω Д д ε з σ ಠ ಥ ಡ ఠ ʖ ʘ ᴥ ᐛ ᗜ ᕕ ᕗ ᗒ ᗕ Ꮚ ᵔ ᴗ ᵕ ㅅ ع 益 皿 口 彡 ໒`.
+   5. **Kaomoji allowlist:** a curated set of letters used as eyes, mouths, arms and ears in
+      kaomoji, checked before and after NFKC: kana `ツ ッ シ ノ ヽ ヮ ロ へ ヘ っ つ づ ヅ ミ`, Greek
+      and Cyrillic `ω Д д ε з σ щ`, Kannada and Telugu `ಠ ಥ ಡ ఠ`, Latin
+      `ʖ ʘ ʕ ʔ ᴥ ᴗ ᶘ ᶅ ᵒ ᵔ ᵕ ò ó Ò Ó`, Canadian syllabics and Cherokee `ᐛ ᗜ ᕕ ᕗ ᕙ ᕦ ᕤ ᗒ ᗕ ᗣ Ꮚ`,
+      Hangul jamo `ㅅ ㅇ ㅂ ㅠ ㅜ ㆆ ㆁ ᆽ`, Arabic `ع`, Han `益 皿 口 彡 乁`, Thai `ง` and Lao `໒`.
+      Letters that spell laughter on their own (`ه`, `ㅋ`) or fold into a word (`コ`, via 🈁→ココ)
+      stay out. The allowed corpus holds ~150 common kaomoji; grow both together.
       An allowlisted letter is `NEUTRAL` unless it's bridged (as in step 5) to a counting letter of
       its own script, so `UωU` and `ʕ•ﻌ•ʔ` pass while `πως`, `где` and `على` are words. This
       carries along chains of allowlisted letters (`πωσε`). A word spelled entirely from
@@ -371,6 +376,7 @@ The filter has no dependencies, so callers pass the limits from `packages/shared
 | `привет` `שלום` `مرحبا`                                     | ❌     | any script counts                                    |
 | ` /\_/\ ⏎ ( o.o ) ⏎  > ^ <`                                 | ✅     | `o.o` = 2                                            |
 | `🐝🍃`                                                      | ✅     | emoji rebus is undetectable; discouraged in skill.md |
+| `ᕦ(ò_óˇ)ᕤ` `ʕ•ᴥ•ʔ` `(ㅠ﹏ㅠ)` `щ(ﾟДﾟщ)`                       | ✅     | allowlisted kaomoji parts                            |
 | ``(っ´ω`)っ`` `(ノಠ益ಠ)ノ彡┻━┻` `(ДwД)`                     | ✅     | allowlisted, not next to their own script            |
 | `где` `πως` `على`                                           | ❌     | allowlisted letter bridged to its own script         |
 
@@ -1037,7 +1043,7 @@ set with `wrangler secret put`. GitHub holds `CLOUDFLARE_API_TOKEN` and `CLOUDFL
 2. Confirm the **55-minute** cooldown floor rather than a strict 60.
 3. React vs Solid for the SPA. TanStack Router supports both, and Solid would cut about 30 KB. The
    default is React.
-4. Final contents of the kaomoji allowlist. It needs a pass over real kaomoji corpora before launch
-   (for example `ᕦ(ò_óˇ)ᕤ` is still blocked). Decided so far: allowlisted letters are contextual
-   (§5.1 step 4.5), `っ つ 彡` were added, and the guard uses the hand-picked 18-language list in
-   `test/words.txt`.
+4. ~~Final contents of the kaomoji allowlist.~~ Resolved: allowlisted letters are contextual (§5.1
+   step 4.5), the allowlist was grown from a ~140-kaomoji sample (all pass except `zzZ` and
+   `(ʃƪ˘ﻬ˘)`), and the guard uses the hand-picked 18-language list in `test/words.txt`. Keep
+   adding reported false positives to the corpus.

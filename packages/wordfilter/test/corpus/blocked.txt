@@ -90,3 +90,17 @@ h \u{600}e \u{600}y
 πωσε
 σωπ
 いつ
+
+# Laughter spelled with letters stays out of the allowlist
+ههه
+ㅋㅋㅋ
+(－_－) zzZ
+
+# Words containing allowlisted kaomoji letters
+ещё
+però
+così
+ของ
+ミルク
+コーヒー
+ʕaʔ

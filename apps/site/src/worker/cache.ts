@@ -15,6 +15,8 @@ export const latestKey = (origin: string) => `${origin}/_cache/latest`;
 /** `GET /feed?before=<id>`: the page is the same size whatever `limit` says, so `before` is the whole key. */
 export const feedBeforeKey = (origin: string, before: number) =>
   `${origin}/api/v1/feed?before=${before}`;
+/** `GET /top`: it takes no params, so the origin is all there is to key by. */
+export const topKey = (origin: string) => `${origin}/api/v1/top`;
 /** `GET /posts/:id`, in the canonical spelling of the id. */
 export const postKey = (origin: string, id: number) => `${origin}/api/v1/posts/${id}`;
 

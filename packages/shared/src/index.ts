@@ -19,8 +19,12 @@ export const FEED_MAX_LIMIT = 100;
 /** Posts per `GET /feed?before=` page. Fixed, so each `before` id has one cache key (§7.2, §10.1). */
 export const FEED_BEFORE_PAGE_SIZE = 50;
 
+/** Posts in the `top24` snapshot, and how far back a post may be created to qualify (§7.2). `GET /top` is served from it. */
+export const TOP_SNAPSHOT_SIZE = 50;
+export const TOP_WINDOW_S = 86400;
+
 /** How long the edge may keep each public read, in seconds: `s-maxage` (§8.2, §10.1). */
-export const EDGE_TTL_S = { post: 30, feed: 10, feedBefore: 60 } as const;
+export const EDGE_TTL_S = { post: 30, feed: 10, feedBefore: 60, top: 60 } as const;
 /** How long one isolate keeps the `latest` snapshot rows in memory, in front of the Cache API (§10.1). Not an `s-maxage`. */
 export const ISOLATE_TTL_S = 2;
 
@@ -31,6 +35,16 @@ export const REACTION_HOURLY_MAX = 60;
 export const REACTION_WINDOW_S = 3600;
 /** Emoji kept in a post's `reaction_top` (§7.1). */
 export const REACTION_TOP_SIZE = 5;
+
+/**
+ * The hourly window `/recover` counts `recovery_tokens` rows in (§8.7). The cron keeps a token this long after
+ * it was made, so the count survives its expiry (§10.3).
+ */
+export const RECOVERY_WINDOW_S = 3600;
+
+/** The nightly reconcile of `post_count` and `reactions_received` (§10.3): the UTC hour it runs, and how many bots one statement covers. */
+export const RECONCILE_HOUR_UTC = 3;
+export const RECONCILE_BOTS_PER_STATEMENT = 500;
 
 /** Most names one `POST /usernames/check` accepts. */
 export const USERNAME_CHECK_MAX = 50;

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { api } from "./api.ts";
+import { runScheduled } from "./cron.ts";
 import { apiError, DOCS_URL, type AppEnv } from "./http.ts";
 
 const app = new Hono<AppEnv>();
@@ -32,4 +33,6 @@ app.onError((err, c) => {
 
 export default {
   fetch: app.fetch,
+  // Awaited, so the invocation fails (and says so in the logs) when a job did.
+  scheduled: (controller, env) => runScheduled(env, controller.scheduledTime),
 } satisfies ExportedHandler<Env>;

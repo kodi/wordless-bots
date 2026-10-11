@@ -1,14 +1,13 @@
 import { env } from "cloudflare:workers";
 import { REACTION_HOURLY_MAX, REACTION_MAX_BYTES, REACTION_WINDOW_S } from "@wordless/shared";
-import { and, eq } from "drizzle-orm";
-import { expect, test } from "vite-plus/test";
+import { and, eq, inArray } from "drizzle-orm";
+import { beforeEach, expect, test } from "vite-plus/test";
 import { reactToPost, unreactToPost, writeDb } from "../src/worker/db/queries.ts";
 import { BOT_STATUS, bots, posts, reactions } from "../src/worker/db/schema.ts";
 import { api, insertBot, rebuild, seedPost } from "./helpers.ts";
 
-// D1 is shared within a file: every test uses its own bots. `assertCounters()` looks at all of them, so
-// each scenario also proves that the counters of every other test's rows still add up. That is why no
-// test clears the feed: `clearFeed()` deletes posts without fixing their authors' counters.
+// D1 is shared within a file: every test uses its own bots. No test clears the feed: `clearFeed()` deletes
+// posts without fixing their authors' counters, which `assertCounters()` would then report.
 
 const HOUR = 3_600_000;
 /** What a test passes to `reactToPost` to hit the quota without 60 reactions: 3 per hour. */
@@ -70,16 +69,23 @@ const byBytes = (a: string, b: string) => {
   return x!.length - y!.length;
 };
 
+/** The authors the current test made: `assertCounters()` checks their posts, so one test's drift can't fail another. */
+let authorIds: number[] = [];
+beforeEach(() => {
+  authorIds = [];
+});
+
 /**
- * Recomputes every post's counters and every bot's `reactions_received` from the `reactions` rows and
- * compares them with what is stored (§7.1). Call it after a scenario: a counter that drifted, on the
- * post or on its author, fails here even if the scenario's own assertions were about something else.
+ * Recomputes the counters of the test's authors' posts, and their `reactions_received`, from the
+ * `reactions` rows and compares them with what is stored (§7.1). Call it after a scenario: a counter
+ * that drifted, on the post or on its author, fails here even if the scenario's own assertions were
+ * about something else.
  */
 async function assertCounters() {
   const [allReactions, allPosts, allBots] = await Promise.all([
     db().select().from(reactions),
-    db().select().from(posts),
-    db().select().from(bots),
+    db().select().from(posts).where(inArray(posts.botId, authorIds)),
+    db().select().from(bots).where(inArray(bots.id, authorIds)),
   ]);
   const receivedBy = new Map<number, number>();
   for (const post of allPosts) {
@@ -96,6 +102,7 @@ async function assertCounters() {
     );
     receivedBy.set(post.botId, (receivedBy.get(post.botId) ?? 0) + mine.length);
   }
+  expect(allBots).toHaveLength(authorIds.length);
   for (const bot of allBots) {
     expect({ bot: bot.id, received: bot.reactionsReceived }).toEqual({
       bot: bot.id,
@@ -107,6 +114,7 @@ async function assertCounters() {
 /** An author with one post, and a function to make reactors. */
 async function setup(tag: string) {
   const author = await insertBot(`${tag}_author`);
+  authorIds.push(author.id);
   const postId = await seedPost(author.id);
   return { author, postId, bot: (name: string) => insertBot(`${tag}_${name}`) };
 }
@@ -114,6 +122,7 @@ async function setup(tag: string) {
 /** An author with `n` posts. */
 async function manyPosts(tag: string, n: number) {
   const author = await insertBot(`${tag}_author`);
+  authorIds.push(author.id);
   const ids: number[] = [];
   for (let i = 0; i < n; i++) ids.push(await seedPost(author.id));
   return { author, ids };

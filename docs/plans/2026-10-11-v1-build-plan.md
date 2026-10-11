@@ -78,10 +78,10 @@ Merged on `main`:
 - #16 Slice 11 admin endpoints and CLI (merged as `8909b7e`): `/api/admin/*`, `requireAdmin`, `db/admin.ts`,
   `scripts/admin.ts` (`pnpm admin`), `ADMIN_TOKEN` in `secrets.required`.
 
-- Slice 12 form fallback is on `feat/form-fallback` (PR #17, in review): `readBody()`, the `api_key` form field in `requireBot`, `POST /reactions`,
+- #17 Slice 12 form fallback (merged as `4fc15a3`): `readBody()`, the `api_key` form field in `requireBot`, `POST /reactions`,
   `GET /act`, `formFallback` (`form.ts`), `act.ts`.
 
-Open: the Slice 12 PR (#17). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+Open: nothing. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers; also `GET /act`),
 `api.ts` (all `/api/v1` routes so far, `putReaction()` and `sendRecovery()`), `act.ts` (`actPage()`, `resultPage()`, `escapeHtml()`), `form.ts` (`formFallback`, `prefersHtml()`), `admin.ts` (the `/api/admin` routes), `auth.ts` (`requireBot`, `requireAdmin`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -109,7 +109,7 @@ reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsern
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 915 tests (57 shared, 506 wordfilter, 352 worker) on the Slice 12 branch; 879 (316 worker) on `main` at `8909b7e`; 861 (298 worker) at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
+Baseline: `vp test` runs 915 tests (57 shared, 506 wordfilter, 352 worker) on `main` at `4fc15a3`; 879 (316 worker) on `main` at `8909b7e`; 861 (298 worker) at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
 `fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
@@ -1467,7 +1467,7 @@ Status: `[x]` Done and verified; merged as `8909b7e` (#16). See Working Notes 20
 
 ### Slice 12: form fallback
 
-Status: `[x]` Done and verified on `feat/form-fallback` (PR #17). See Working Notes 2026-10-12, Slice 12 session. Differences from the sketch
+Status: `[x]` Done and verified; merged as `4fc15a3` (#17). See Working Notes 2026-10-12, Slice 12 session. Differences from the sketch
 below: a form can't reach `PUT /posts/:id/reaction`, so react is `POST /reactions {post_id, emoji}` (same code); forms are gated by `Origin`
 (`403 cross_origin`), not tokens; a body labelled as a form that starts with `{` stays JSON.
 
@@ -1478,11 +1478,12 @@ below: a form can't reach `PUT /posts/:id/reaction`, so react is `POST /reaction
 
 ### Slice 13: the web UI (several PRs)
 
-Status: `[ ]` React stays and the JS budget is 130 KB gzip (decided 2026-10-11).
+Status: `[ ]` React stays and the JS budget is 130 KB gzip (decided 2026-10-11). The look is the **Hash** direction from `docs/design/2026-10-11-home-profile-v2/`,
+built with Tailwind (user's decision, 2026-10-12; see Next Slice).
 
-- 13a router and feed view from the API; 13b `HTMLRewriter` boot-data injection, titles and OG tags,
-  security headers (§9.2, §9.4); 13c polling and the `↑ N` pill; 13d profile, permalink, about and
-  recover pages; 13e styles and the Playwright smoke test.
+- 13a Tailwind, the shell, and `/` and `/top` from the API; 13b `HTMLRewriter` boot-data injection, titles and OG tags,
+  security headers (§9.2, §9.4); 13c polling and the `↑ N` pill; 13d profile (`hash-profile.html`), permalink, about and
+  recover pages; 13e the Playwright smoke test (styling now lands in 13a, not 13e).
 
 ### Slice 14: deploy
 
@@ -1514,17 +1515,33 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 13a: the web UI's router and feed view** (the first of the Slice 13 PRs): TanStack Router (code-based routes) and a feed view that reads the API (`/api/v1/feed`),
-as ARCHITECTURE §9.1 and §9.3 describe. The SPA is still the scaffold's hello-world, and the JS budget is 130 KB gzip (it is 94.96 KB now). Read §9 in full first. Do not start 13b to
-13e in the same PR (boot-data injection, polling, the other pages, styles).
-Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the Rate Limiting binding (Open Question 1). Workers Paid is the user's word, not
-verified (Open Question 2); the first staging deploy confirms it. `AGENTS.md` is deliberately unchanged, so the user will point you at this file.
+**Slice 13a: Tailwind, the app shell, and the `/` and `/top` views**, in the Hash design. Not the profile, permalink, about, recover, polling, pill or boot data (13b to 13e).
 
-Start here (Slice 13a):
+Design (open the HTML files in a browser, read the CSS):
 
-1. `git fetch origin && git switch main && git pull`, then branch. Slice 12 should be merged by then (check with `git log origin/main --oneline -3`); if it is not, say so and ask.
-2. Read `AGENTS.md`, the Cross-slice rules, the Slice 12 Working Notes, the Slice 13 section above, and ARCHITECTURE §9 and §10.
-3. `vp test` should report 915 passing before you change anything (if Slice 12 is merged).
-4. The `/act` page is plain server HTML and has no styles; the SPA doesn't own it (it is in `run_worker_first`).
-5. Done when `vp check --no-fmt`, `vp test` and `vp run -r build` pass (plain `vp check` fails on the untracked `docs/design/` files until the user formats or commits them),
-   ARCHITECTURE matches the code, and this file records 13a with the exact commands under Working Notes.
+- `docs/design/2026-10-11-home-profile-v2/hash-home.html` (+ `hash.css`, `base.css`, `demo.js`) is the target. `hash-home.html?view=top` is `/top`: same list, posts numbered. `README.md` there says what Hash is and what changed after review.
+  `hash-profile.html` is 13d's target; read it now so the shared pieces (top bar, post card, avatar, reaction tags) fit both.
+- **Re-implement, don't port.** TanStack Router routes (`/` and `/top`, §9.1), Tailwind utilities, and small custom components (shell, `Post`, `Avatar`, reaction tags, relative time and compact counts). The demo's `.hash` class, `demo.js` and static fixtures go away; data comes from `/api/v1/feed` and `/api/v1/top`.
+- Keep what makes it Hash: one solid page, the art panel with two cut corners and corner ticks, parallelogram reaction tags (`skewX`, content skewed back, the sunk empty tag, `⋯ N` for the rest, `∑ total`), the 40px round avatar in the left gutter, sans for chrome and mono for art, light/dark by `prefers-color-scheme`.
+- Avatars: draw inline from `avatarSpec()` in `packages/shared` (§9.3), no fetch. The API returns the top 5 reactions (`REACTION_TOP_SIZE`), the rest is `total` minus their sum.
+
+Gotchas:
+
+- **Tailwind is a new dependency, and the user approved it** (2026-10-12, with this design). Use Tailwind v4 with its Vite plugin, via `vp add` (catalog entry like the others), configured in `apps/site/vite.config.ts` for the non-test mode only. No UI kit, no other dependency. Update ARCHITECTURE §4 ("Plain CSS (one file...)") and add a decision row (47).
+- **CSP (§9.4) is `style-src 'self'; script-src 'self'`.** No inline `<style>` or `style="..."` in HTML. The demo's per-post `--h` hue is set from React through the DOM `style` property, which the CSP allows. `oklch()` is used for the profile banner only (13d).
+- **Budgets**: JS 130 KB gzip (95 KB now), CSS 8 KB. Check the built CSS size; record both in the PR.
+- Nav: the design uses small labels (`⌂ latest`, `🔥 top 24h`, `∴ about`), while §9.3 says icon-only chrome. Update §9.3 to match the design in the same PR. `/about` doesn't exist yet: link it or leave it out, but don't ship a dead route. `🤖 /skill.md` button stays (plain link; the Worker serves it).
+- Post text is only ever a React text node; art is `white-space: pre` in a card that scrolls horizontally (a post wider than a phone is in the fixtures).
+- Navigation between `/` and `/top` must not reload; both hit the edge-cached API. Until 13b there is no boot data: loaders just fetch. Handle loading and empty/error states plainly.
+- `/act` and `/api/*` are Worker-owned HTML and JSON; the SPA must not touch them.
+- `docs/design/` is the user's untracked work: leave it alone, and plain `vp check` still fails on it (use `vp check --no-fmt`). The dev server on :5173 (pid 53728) is the user's; use `vp dev --port 5174 --strictPort` and stop it by pid. A live check needs seeded data (register bots with curl, post, react), then clean up scoped rows in the local D1 (and the `latest` snapshot row).
+- Tests only where they can fail for a real regression (AGENTS.md): pure helpers (relative time, compact counts, the reaction `⋯` remainder) and route data flow. No tests for markup or copy. The Playwright smoke test is 13e.
+
+Start here:
+
+1. `git fetch origin && git switch main && git pull`, then branch. Slice 12 is merged as `4fc15a3`.
+2. Read `AGENTS.md`, the Cross-slice rules, ARCHITECTURE §9 and §10.1, the design README and the two HTML files, and `apps/site/src/web/main.tsx` (the hello-world router).
+3. `vp test` should report 915 passing.
+4. Done when `vp check --no-fmt`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, the plan marks 13a with the exact commands (and the bundle sizes) under Working Notes, and `Next Slice` points at 13b.
+
+Still deferred or waiting: Slice A (tests in CI, deferred by the user), Slice 1.1 (Rate Limiting binding, Open Question 1), Slice 14 (first deploy; also confirms Workers Paid, Open Question 2).

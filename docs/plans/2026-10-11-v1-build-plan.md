@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-11 (Slice 9 session: key recovery and email).
+Last updated: 2026-10-12 (end of the Slice 9 session: key recovery and email).
 
 ## Summary
 
@@ -70,22 +70,25 @@ Merged on `main`:
 
 - #13 Slice 8 key rotation and `PATCH /me` (merged as `bd289f4`): `POST /keys/rotate`, `PATCH /me`, `rotateKey()`, `setBio()`.
 
-Open: nothing. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+- Slice 9 key recovery and email is on `feat/recovery` (PR in review): `POST /recover`, `POST /recover/confirm`, `EmailSender`, the `EMAIL`
+  binding, `issueRecoveryToken()`, `recoverKey()`.
+
+Open: the Slice 9 PR (`feat/recovery`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
-`api.ts` (all `/api/v1` routes so far), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
-`ip-hash.ts`, `serialize.ts` (`iso()`, `serializePost()`, `serializeReactions()`, `serializeProfile()`), `feed.ts` (`latestPage()`, the pure paging
+`api.ts` (all `/api/v1` routes so far, and `sendRecovery()`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
+`ip-hash.ts` (`keys.ts` also has `generateRecoveryToken()` and `hashRecoveryToken()`), `serialize.ts` (`iso()`, `serializePost()`, `serializeReactions()`, `serializeProfile()`), `feed.ts` (`latestPage()`, the pure paging
 and gap rules), `cache.ts` (L0 and L1: `readLatestCached()`, `cachedResponse()`, `purgeLatest()`,
 `purgePost()`, `purgeProfile()`, `rebuildAndPurgeLatest()` and the `latestKey()`, `feedBeforeKey()`, `postKey()`, `topKey()`,
 `profileKey()`, `profileBeforeKey()` builders),
-`cron.ts` (`runScheduled()`, `dueJobs()`), `db/schema.ts`, `db/queries.ts` (`createPost()`, `findPost()`,
-`deletePost()`, `rotateKey()`, `setBio()`, `reactToPost()`, `unreactToPost()`, `visiblePosts()`, `olderPosts()`, `findBotProfile()`, `botPosts()`,
+`cron.ts` (`runScheduled()`, `dueJobs()`), `db/schema.ts`, `email.ts` (`EmailSender`, `cloudflareEmail()`, `recoveryMessage()`), `db/queries.ts` (`createPost()`, `findPost()`,
+`deletePost()`, `rotateKey()`, `setBio()`, `issueRecoveryToken()`, `dropRecoveryToken()`, `recoverKey()`, `reactToPost()`, `unreactToPost()`, `visiblePosts()`, `olderPosts()`, `findBotProfile()`, `botPosts()`,
 `botPostsQuery()`, `PostRow`, `postRowColumns`),
 `db/snapshots.ts` (`rebuildLatest()`, `readLatest()`, `rebuildTop24()`, `readTop()`, `topPosts()`, `snapshotAges()`) and
 `db/maintenance.ts` (`deleteStaleRecoveryTokens()`, `reconcileBotCounters()`).
 Tests are in `apps/site/test/` with helpers `insertBot()` (accepts `lastPostAt`, `status`, `bio`,
 `createdAt`, `regIpHash`), `seedPost()` (a post through `createPost()` with no cooldown wait),
-`insertPosts()` (bulk insert, no counters; use it to fill a feed), `clearFeed()` (also purges the cached
+`insertPosts()` (bulk insert, no counters; use it to fill a feed), `insertToken()` (a recovery token row; returns the raw token), `fakeEmail()` (an `EmailSender` that keeps what it sent) and `tokenIn()` (the token in a mail's link), `clearFeed()` (also purges the cached
 snapshot and the cached `/top`: isolate memory and the Cache API outlive a test), `rebuild()` (what a post or delete does after
 its response: rebuild `latest`, then purge; use it instead of calling `rebuildLatest()` and then reading),
 `lateDb()` (a `Db` whose answers arrive late; for stale-write races), `gatedDb()` (a `Db` whose statements
@@ -98,11 +101,11 @@ reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsern
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 809 tests (57 shared, 506 wordfilter, 246 worker) on `main` at `bd289f4`; 795 (232 worker) at
+Baseline: `vp test` runs 830 tests (57 shared, 506 wordfilter, 267 worker) on the Slice 9 branch; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
 `fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
-Not built yet: recovery, email, admin, form
+Not built yet: admin, form
 fallback, burst rate limits (the register hourly limit exists), agent docs (`/skill.md` etc.), all of the real UI,
 Analytics Engine events.
 
@@ -112,16 +115,16 @@ Infra reality:
   placeholders that `wrangler secret put` created, and **`IP_HASH_SECRET` is set on both** (the user
   ran it on 2026-10-11; `wrangler secret list` shows it for prod with `--env=""` and for `--env
   staging`). Later secrets follow ARCHITECTURE §14.
-- `wrangler.jsonc` has `DB`, `ASSETS`, the `secrets.required` list, observability and (since Slice 6, approved by
-  the user on 2026-10-11) `triggers.crons: ["* * * * *"]` at the top level and in `env.staging`. No `ratelimits`,
-  `send_email` or `analytics_engine_datasets`.
+- `wrangler.jsonc` has `DB`, `ASSETS`, `EMAIL` (`send_email`, since Slice 9, approved by the user on 2026-10-11, top level and `env.staging`), the `secrets.required` list, observability and (since Slice 6, approved by
+  the user on 2026-10-11) `triggers.crons: ["* * * * *"]` at the top level and in `env.staging`. No `ratelimits` or
+  `analytics_engine_datasets`.
 - CI runs only `vp check`. **Tests and build are not in CI** (§14 says the PR pipeline should be
   check → test → build).
 - The prod and staging D1 ids in `wrangler.jsonc` are filled in. Whether the databases hold the
   migrations is unverified.
 - Email Sending is enabled for `wordless.one` (account tag `132abfb887f74b398992af69fad0eaed`), and
   its five DNS records (3 MX, SPF, DKIM, `_dmarc`) are in the zone and resolve (checked with `dig` against
-  `henrik.ns.cloudflare.com` and 1.1.1.1 on 2026-10-11; ARCHITECTURE §12). No `send_email` binding yet.
+  `henrik.ns.cloudflare.com` and 1.1.1.1 on 2026-10-11; ARCHITECTURE §12). The `EMAIL` binding exists (Slice 9).
 
 ## Working Notes
 
@@ -899,6 +902,93 @@ Findings:
 - Recovery (Slice 9) will rotate a key too. It has no key to guard on, so it needs its own write; don't reuse `rotateKey()` as is.
 - Not changed, as instructed: the Rate Limiting binding (Slice 1.1), tests in CI (Slice A), `/top` purging, `wrangler.jsonc`.
 
+### 2026-10-12, Slice 9 session (`POST /recover`, `POST /recover/confirm`, email)
+
+Done on branch `feat/recovery`, branched from `main` at `bd289f4` (Slice 8 was merged). The first commit fixed the stale Slice 8 statuses, the
+baseline and the email DNS lines. New binding (approved): `send_email` named `EMAIL`, at the top level and in `env.staging`, then
+`pnpm --filter site cf-typegen`. No migration (`recovery_tokens` was in `0000_init.sql`) and no new dependency or secret.
+
+- Design:
+  - **`POST /recover {username}`** answers `202 {status, message}`, `private, no-store`, for every well-formed request: a live bot, an unknown
+    name, a banned bot, a bot over its limit, an invalid name. Only a body that isn't `{username: string}` is a `400`. The handler answers
+    **before any database work or mail**: the work (`sendRecovery()`) runs in `ctx.waitUntil`, so the time says nothing either. A test holds
+    `EMAIL.send` back and still gets the `202`; awaiting the work inline fails it.
+  - **`issueRecoveryToken()`** is one batch: a query-builder `INSERT ... SELECT` from the active bot's row with the hourly count inside the
+    `WHERE` (`RECOVERY_MAX` per `RECOVERY_WINDOW_S`, counted on `recovery_by_bot`, used and expired rows included), plus a read of the address.
+    Atomic like register's IP limit. No row means unknown, banned or full, and the caller can't tell which.
+  - **`recoverKey()`** is its own write, not `rotateKey()`: swap the key `WHERE status = 0 AND id = (SELECT bot_id FROM recovery_tokens WHERE
+    token_hash = ? AND used_at IS NULL AND expires_at > now)`, then spend every unused token of the bot that now holds the new key hash, then
+    read back. Swap first, because spending first would hide the token from the swap. A refused swap spends nothing.
+  - **Tokens:** 32 random bytes, base62, 43 characters (`generateRecoveryToken()`); SHA-256 stored in `token_hash`. The raw token is only in
+    the mail's link `<origin>/recover#t=<token>`. `POST /recover/confirm` reads it from the body only (the query string is never read); a token
+    that isn't 43 base62 characters is `410` without a D1 call. Every response of the route is `private, no-store`.
+  - **Banned bot decision:** a live token of a banned bot is `403 banned` and stays unspent; a used or expired one is `410`. Whoever holds a live
+    token owns the address, so the `403` is not enumeration (ARCHITECTURE §8.3, decision 41).
+  - **Failed send:** the token row is deleted, so an outage doesn't burn a bot's three links; the error is logged as `recover: failed <name>`
+    only (a send error can name the recipient).
+  - **Link origin** is the request's origin (staging links to staging). That is safe only while the routes are exact hostnames; see the Slice 14
+    notes (a wildcard route would let the `Host` header choose the link).
+  - Constants in `packages/shared`: `RECOVERY_MAX` 3, `RECOVERY_TOKEN_TTL_S` 1800 (`RECOVERY_WINDOW_S` existed). `TODO(§8.7)` marks the 3/min/IP
+    limit for Slice 1.1.
+  - The cron needed no change: Slice 6's cleanup keeps a row `RECOVERY_WINDOW_S` after it expired, which is what the count relies on.
+  - Docs: §2.4, §6.3, §7.1 (request and recover, with the SQL), §8.3, §8.7 (unchanged row), §12 (binding, `waitUntil`, local dev, tests), §15, §18
+    decisions 40 to 42, §19.1.
+- Tests (21 new, 809 to 830): `test/recovery.test.ts`. Sending (6): mail address, link and hash-only storage; unknown and banned names send
+  nothing; three an hour with the window edge and another bot unaffected; used and expired rows still count; **eight parallel `sendRecovery()`
+  calls send exactly three**; a failing send takes the token back. `POST /recover` (5): one answer for eight kinds of name (status, headers,
+  body), `400`s, the full flow through `vi.spyOn(env.EMAIL, "send")`, the `202` before the send, a failing send logs no address. Confirm
+  (10): one use then `410`; bad, used, expired and malformed tokens answer alike; wrong shape never calls `DB.batch`; the exact expiry
+  millisecond; body only, never the query string; `400`s; **eight parallel `recoverKey()` calls give one winner and the stored hash is the
+  winner's**; six parallel HTTP confirms give one `200`; siblings spent and another bot's not; banned live token `403` and unspent.
+
+Verified (all run from the repo root):
+
+- `vp check --no-fmt`: clean (64 files linted and type-checked). `vp fmt --check` is clean on `apps`, `packages`, `docs/ARCHITECTURE.md` and
+  `docs/plans`. **Plain `vp check` fails on the user's untracked `docs/design/` HTML files (8 files, formatting only); not mine, left alone.**
+- `vp test`: 30 files, **830 passed** (809 baseline + 21 new), 3 full runs in a row.
+- `vp run -r build`: passed (Worker 107.14 kB gzip, up from 104.88; SPA 94.96 kB gzip).
+- Mutation checks, each reverted afterwards, whole suite run (a script that backs the file up and restores it). 26 mutants plus 2
+  read-then-write ones, all caught in the end (counts in brackets are failing tests):
+  - Issue: limit predicate dropped (3), window edge `>` to `>=` (1), window dropped (1), banned allowed (1), TTL in seconds (1), count not per bot
+    (6), **read-then-write count with the insert unlimited (1: only the parallel `sendRecovery()` test, 3 runs of 3)**.
+  - Recover: `used_at` not checked (5), expiry not checked (2), expiry `>` to `>=` (1), status check dropped (1), token never spent (4), spend not
+    tied to the new key (4), only the presented token spent (1), banned reported as invalid (1) and the reverse (3), hash not written (5),
+    **read-then-write validity check then an unconditional swap (1: only the parallel `recoverKey()` test, 3 runs of 3)**.
+  - Route: mail awaited inline (1), failed send keeps the token (2), full error logged (1), token read from the query (2), confirm not `no-store`
+    (2), extra response field (1), unknown name answers differently (1), link in the query string (2), shape check skipped (1), token stored raw (1).
+  - Three looked like survivors in the first round. Two were real and got a better test or assertion: the shape check (now a `DB.batch` spy)
+    and the full error logged (the first test serialised the `Error` to `{}`). The third, the inline await, was my mutant: it left a trailing
+    comma in parentheses, a parse error, and my runner counted only failed tests, so a file that failed to compile read as a pass. The
+    corrected mutant (`await Promise.resolve(...)`) is caught by "POST /recover answers before the mail is sent". Two more mutants (window
+    edge and expiry `>=`) failed only on a missing `gte` import; they were redone with `or(gt, eq)` and are caught by the edge tests.
+    Every other "caught" above failed on named tests.
+- Live check on my own dev server (`cd apps/site && vp dev --port 5174 --strictPort`, stopped afterwards; the one on :5173, pid 53728, was
+  left alone and does not have the new binding): register, then `POST /recover` for the bot and for an unknown name gave identical `202`s; the
+  simulated `send_email` binding printed the sender and subject and wrote the bodies under `apps/site/.wrangler/tmp/email/`; the link was
+  `http://localhost:5174/recover#t=<43 characters>`; the token in a query string gave `410`; the body token gave `200` with `private, no-store`
+  and `{api_key, username}`; the same token again gave `410 token_invalid`; four more requests in the hour sent two more mails (3 mails for 5
+  requests). The probe bot and its tokens were deleted from the local D1 (it was empty before) and the mail files removed.
+- **Test mail:** `pnpm exec wrangler email sending send --from noreply@wordless.one --from-name "wordless.one" --to <the user's address>
+  --subject "wordless.one test mail (Slice 9)" --text "..."` from `apps/site` printed `Queued for: <address>` (the API accepted it).
+  Delivery was not confirmed from here. It does not show that sending to arbitrary recipients works (see Open Question 2).
+
+Findings:
+
+- **`vi.spyOn(env.EMAIL, "send")` works** under `@cloudflare/vitest-plugin`, and the Worker sees the spy, so the HTTP path is tested through the
+  real `cloudflareEmail()` and the binding without a seam in the code. The miniflare binding exists in tests because `wrangler.jsonc` declares it.
+- A `Promise.all` of `sendRecovery()` and of `recoverKey()` caught both read-then-write mutants every run, as §15 says it should; the HTTP race
+  test is only the end-to-end check.
+- drizzle's query-builder `INSERT ... SELECT` takes a `Uint8Array` param through ``sql`${bytes}`.as("token_hash")``, and a correlated
+  subquery built with the builder (`eq(recoveryTokens.botId, bots.id)`) renders qualified names correctly.
+- `wrangler dev` does not print a simulated mail's body, only file paths.
+- `wrangler whoami` shows one account id, `9c3a154e...`, which is not the "account tag" `132abfb8...` recorded under Infra reality for Email
+  Sending. Unexplained (they may be different identifiers); worth a look before Slice 14.
+- The `email_in_use` hint had no "recover isn't built yet" caveat to remove; it already pointed at `/api/v1/recover`.
+- A mistake of mine worth a line: a stray `sqlite3` in a shell one-liner read stdin and hung the command for two minutes. A second: a text anchor in
+  a plan-editing script matched an older slice's identical sentence and wiped the Slice 5 to 8 notes from the plan; caught from the diff stat
+  (399 deletions) before any PR, and redone with anchors asserted unique.
+- Not changed, as instructed: the Rate Limiting binding (Slice 1.1), tests in CI (Slice A), `/top` purging, the other `wrangler.jsonc` bindings.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -906,10 +996,11 @@ Ask the user rather than assuming:
 1. **Rate Limiting binding** (`ratelimits` in `wrangler.jsonc`): approved? Three `TODO(§8.7)`
    comments in `api.ts` (register 3/min, `/usernames/check`, `/validate`) are waiting on this.
    Blocks Slice 1.1 only.
-2. **Cloudflare Email Service** (ARCHITECTURE §19.1): sending is enabled and the five DNS records are in the
-   zone (checked 2026-10-11). The `send_email` binding is approved (2026-10-11). Still open: whether the account is on
-   Workers Paid, which sending to arbitrary recipients needs. A real test mail settles it (see Slice 9). The fallback is
-   Resend behind the same `EmailSender` interface; switching needs the user's go-ahead.
+2. **Cloudflare Email Service** (ARCHITECTURE §19.1): sending is enabled, the five DNS records are in the zone and the `EMAIL`
+   binding exists (2026-10-11). **Still open: whether the account is on Workers Paid**, which sending to arbitrary recipients needs.
+   The Slice 9 test mail went to the user's own address and was accepted ("Queued for"), which does **not** settle it: an account
+   owner's address may be a verified destination on the free plan. Settle it in the dashboard (Billing) or with a mail to a
+   second, unverified address. The fallback is Resend behind the same `EmailSender` interface; switching needs the user's go-ahead.
 3. ~~JS budget vs React~~ Resolved 2026-10-11: React stays, budget is 130 KB gzip.
 4. **First deploy** of staging and prod (Slice 14), and who sets any new remote secrets, such as
    `ADMIN_TOKEN` in Slice 11. `IP_HASH_SECRET` is already set on both.
@@ -1129,12 +1220,13 @@ empty bio clears it.
 
 ### Slice 9: key recovery and email
 
-Status: `[ ]` Unblocked (DNS records in the zone, `send_email` binding approved); Workers Paid unverified.
+Status: `[x]` Done and verified on `feat/recovery` (PR in review). See Working Notes 2026-10-12, Slice 9 session. Differences from the sketch
+below: `/recover` answers before any database work or mail (`waitUntil`), a confirm also spends the bot's other unused links, a live token
+of a banned bot is `403 banned`, and a mail that fails to send deletes its token. The `email_in_use` hint needed no change (it already
+pointed at `/recover` with no caveat).
 
-- `EmailSender` interface plus the Cloudflare implementation (`send_email` binding: ask first),
-  `POST /recover` (always `202`, 3/hour per bot counted on `recovery_by_bot`), `POST
-  /recover/confirm` (single-use, 30-minute tokens, `410 token_invalid`). Tests use a fake sender.
-  Remove the `/recover` caveat from the `email_in_use` hint when this lands.
+- `EmailSender` interface plus the Cloudflare implementation (`send_email` binding: approved), `POST /recover` (always `202`, 3/hour per
+  bot counted on `recovery_by_bot`), `POST /recover/confirm` (single-use, 30-minute tokens, `410 token_invalid`). Tests use a fake sender.
 
 ### Slice 10: agent docs
 
@@ -1172,6 +1264,15 @@ Status: `[ ]`
 
 - Staging deploy on push to `main`, prod on tag, remote migrations, first-deploy secrets, custom
   domains and DNS (§14). Needs the user's Cloudflare credentials in GitHub secrets.
+- **Ask the user before touching DNS.** The zone still holds records that look left over from the old host (reported 2026-10-12; `dig` only
+  shows Cloudflare's proxy IPs, so the origins aren't visible from outside): an apex `A` record `wordless.one` to `46.101.96.143` (proxied), a
+  wildcard `*.wordless.one` to the same address, and a `www` `CNAME` to a GoDaddy host (the exact target wasn't recorded; read it in the
+  dashboard). `dig` confirms every name resolves, `staging.wordless.one` and a made-up one included. They will conflict with a Workers
+  custom domain at the apex, and the wildcard could swallow a staging hostname. ARCHITECTURE §14 says "wipe all old records", but don't do it
+  without asking: the email records (3 MX, SPF, DKIM, `_dmarc`) live in the same zone and must stay.
+- **Routes must be exact hostnames, never `*.wordless.one/*`.** The recovery mail links to the request's origin (Slice 9), so a wildcard route
+  would let a forged `Host` header choose where a victim's link points. If staging needs a different mail origin anyway, add a `PUBLIC_ORIGIN`
+  var (ask first).
 
 ### Slice 15: observability
 
@@ -1186,20 +1287,19 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 9: key recovery and email.** Unblocked: the DNS records are in the zone and the user approved the `send_email` binding. Workers Paid
-is unverified (Open Question 2). Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the Rate Limiting binding
-(Open Question 1). `AGENTS.md` is deliberately unchanged, so the user will point you at this file.
+**Slice 10: agent docs.** It is unblocked. Slice 11 (admin) needs `ADMIN_TOKEN` as a new secret, so ask first; Slice 12 (form fallback) is also
+unblocked. Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the Rate Limiting binding (Open Question 1). Workers
+Paid is unverified (Open Question 2); it matters for production recovery mail, not for Slice 10. `AGENTS.md` is deliberately unchanged, so the user
+will point you at this file.
 
-If Open Question 2 stays open, pick one of the unblocked slices instead: Slice 10 (agent docs), Slice 11 (admin; needs `ADMIN_TOKEN` as a
-new secret, ask first) or Slice 12 (form fallback).
+Start here (Slice 10):
 
-Start here (Slice 9):
-
-1. `git fetch origin && git switch main && git pull`, then branch. Slice 8 should be merged by then; check with `git log origin/main --oneline -3`.
-2. Read `AGENTS.md`, the Cross-slice rules, the "Slice 8" Working Notes and the Slice 9 section above, then ARCHITECTURE §6.3, §8.3, §8.7 and §12.
-   Check the DNS first: `dig +short MX cf-bounce.wordless.one @henrik.ns.cloudflare.com`.
-   - Recovery issues a new key without an old one to guard on: write its own conditional update, don't reuse `rotateKey()`.
-   - A recovered key changes nothing a profile shows, so it purges nothing.
-3. `vp test` should report 809 passing before you change anything.
-4. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this file's Slice 9 is `[x]` with the exact
-   commands under Working Notes, and `Next Slice` points at the next unblocked slice.
+1. `git fetch origin && git switch main && git pull`, then branch. Slice 9 should be merged by then; check with `git log origin/main --oneline -3`.
+2. Read `AGENTS.md`, the Cross-slice rules, the "Slice 9" Working Notes and the Slice 10 section above, then ARCHITECTURE §11, §2.1 to §2.4, §8.1 and
+   §10.1. Check the OpenClaw and Hermes cron syntax against their current docs while writing (§11 note).
+   - The docs must describe what the API does now: recovery (`POST /recover`, `POST /recover/confirm`), rotation, `PATCH /me`, reactions, the
+     error codes. `X-Wordless-Docs` already points at `DOCS_URL` in `http.ts`.
+3. `vp test` should report 830 passing before you change anything.
+4. Done when `vp check --no-fmt`, `vp test` and `vp run -r build` pass (plain `vp check` fails on the untracked `docs/design/` files until the user
+   formats or commits them), ARCHITECTURE matches the code, this file's Slice 10 is `[x]` with the exact commands under Working Notes, and `Next Slice`
+   points at the next unblocked slice.

@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-11 (end of the Slice 1 session: register rate limits).
+Last updated: 2026-10-11 (end of the Slice 2 session: `POST /posts`).
 
 ## Summary
 
@@ -47,22 +47,22 @@ Merged on `main`:
 - `mise.toml` for one-command local setup.
 - #4 `POST /register` (squash-merged as `521914b`): `parseEmail()` in `packages/shared`, `createBot()`,
   `hashIp()`, `storeCredentials()`, the `IP_HASH_SECRET` secret and `.dev.vars` flow.
+- #5 register rate limit, 5/hour/IP in D1 (squash-merged as `765be6d`).
 
-Open: the Slice 1 PR `feat(api): rate limit POST /register per IP` (branch `feat/register-rate-limit`).
-It is not merged yet. Check with `git fetch origin && git log origin/main --oneline -3` before
-branching (see Next Slice).
+Open: the Slice 2 PR `feat(api): add POST /posts` (branch `feat/post-create`, from `765be6d`). Check
+with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
-`ip-hash.ts`, `db/schema.ts`, `db/queries.ts`. Tests are in `apps/site/test/` with helpers
+`ip-hash.ts`, `serialize.ts` (`iso()`, `serializePost()`), `db/schema.ts`, `db/queries.ts`. Tests are in `apps/site/test/` with helpers
 `insertBot()` (accepts `lastPostAt`, `status`, `bio`, `createdAt`, `regIpHash`), `api()` and
 `nextIp()` in `helpers.ts`. `http.ts` has `apiError()`, `readJson()` and `tooManyRequests()`
 (`429` with `Retry-After` and `retry_after_s`; reuse it for `429 cooldown` and reaction limits).
 
-Baseline: `vp test` runs 606 tests (49 shared, 506 wordfilter, 51 worker) on the Slice 1 branch.
-On `main` before Slice 1 it was 601.
+Baseline: `vp test` runs 620 tests (49 shared, 506 wordfilter, 65 worker) on the Slice 2 branch.
+On `main` at `765be6d` (before Slice 2) it is 606.
 
-Not built yet: posts, feed, top, reactions, profiles, key rotation, `PATCH /me`, recovery, email,
+Not built yet: reading or deleting posts, feed, top, reactions, profiles, key rotation, `PATCH /me`, recovery, email,
 admin, form fallback, snapshots, caching, cron, burst rate limits (the register hourly limit exists),
 agent docs (`/skill.md` etc.), all of
 the real UI, Analytics Engine events.
@@ -177,6 +177,78 @@ Findings:
   it, and every register test would fail, so drift is caught.
 - Not touched, as instructed: `wrangler.jsonc`, tests-in-CI.
 
+### 2026-10-11, Slice 2 session (`POST /posts`)
+
+Done on branch `feat/post-create`, branched from `main` at `765be6d` (PR #5 was merged). Not merged yet.
+
+- Design: `createPost()` (`db/queries.ts`) is one `db.batch()` of three statements: a conditional
+  `INSERT INTO posts ... SELECT ... FROM bots WHERE <may post> RETURNING id`, `UPDATE bots ... WHERE
+  <may post>`, and a read-back `SELECT status, last_post_at FROM bots WHERE id = ?`. One Drizzle
+  predicate (`mayPost`) is shared by both writes, so they succeed or fail together. If no row comes
+  back, the read-back (same transaction) gives the `last_post_at` that blocked it, which becomes
+  `next_post_at`. Result: `{created: true, id} | {created: false, reason: "cooldown", lastPostAt} |
+  {created: false, reason: "banned"}`.
+- Deviation from the old §7.1 SQL, now updated in the doc: the `UPDATE` also checks `status = 0`.
+  Without it, a bot banned between `requireBot` and the batch would get no post but would still have
+  `post_count` incremented and its cooldown moved. That case now answers `403 banned`.
+- The route filters first (`checkContent` with the shared `POST_LIMITS`, also used by `/validate`),
+  so a `422` never touches the DB. `422` bodies are `{code, message, matches, hint}` (`matches` is `[]`
+  when the filter gives none). `429 cooldown` goes through `tooManyRequests()` with `hint` and
+  `next_post_at`.
+- `serializePost(row: PostRow, origin)` in `serialize.ts` builds the §8.1 object. `PostRow`
+  (`id, username, content, createdAt, reactionTotal, reactionTop` as the stored JSON string) is
+  exported from `db/queries.ts` for Slices 3 to 7 to select into. `iso()` moved there from `api.ts`.
+- `TODO(§7.1)` in the route marks the `latest` rebuild and cache purge for Slice 4.
+- Tests: `test/posts.test.ts`, 14 tests (happy path with DB row and `/me`, `429` body and header with
+  nothing changed, HTTP race, direct `createPost` race, other bot unaffected, six `422` codes, `401`
+  without a key, exact cooldown boundary, banned-after-auth).
+
+Verified (all run from the repo root):
+
+- `vp check`: clean (40 files linted and type-checked, 60 formatted).
+- `vp test`: 16 files, **620 passed** (606 baseline + 14 new).
+- `vp run -r build`: passed (Worker 90.70 kB gzip, SPA 94.96 kB gzip).
+- Mutation checks, each reverted afterwards (`vp test apps/site/test/posts.test.ts`):
+  - `lte` to `lt` in `mayPost`: the boundary test fails.
+  - Cooldown window dropped (`<= at`): 4 tests fail.
+  - Cooldown passed in seconds instead of ms: the `429` test fails.
+  - `UPDATE` guarded by `id` only: 4 tests fail (incl. `429` changes nothing, banned-after-auth).
+  - `status` dropped from `mayPost`: the banned-after-auth test fails.
+  - Raw `body.content` stored instead of the canonical form: the happy-path test fails.
+  - Post written before the filter: all six `422` tests (and 3 others) fail.
+  - `createPost` rewritten as read-then-write (separate `SELECT`, unconditional batch): the direct
+    `createPost` race test fails 11 of 11 runs.
+- Live check on a second dev server (`vp dev --port 5174 --strictPort`, stopped afterwards; the
+  server on :5173 was left alone): register, then `422 contains_words`, `201` with the canonical
+  content and `url` `http://localhost:5174/p/1`, `429 cooldown` with `retry-after: 3300`, and `/me`
+  showing `post_count: 1` and the matching `next_post_at`. The local D1 was empty before; the probe
+  bot, its post and the `posts` `sqlite_sequence` row were deleted afterwards.
+
+Findings:
+
+- **drizzle-orm 0.45.4's D1 `batch()` can't run raw `db.get(sql...)` / `db.run` / `db.all` items that
+  have parameters**: it calls `preparedQuery.stmt.bind`, and `SQLiteRaw` has no `stmt` ("Cannot read
+  properties of undefined (reading 'bind')"). Raw items without parameters work. So the insert uses
+  `db.insert(posts).select(db.select({...}).from(bots).where(...))`. Drizzle's insert-select writes
+  **every** column in table order, so the select lists `id` (`NULL`, AUTOINCREMENT picks it) and the
+  defaults `0, '[]', 0`, and each `sql` field needs `.as("<column>")` or `tsc` rejects it. Adding a
+  `posts` column breaks this at runtime (Drizzle throws on mismatched keys), and every post test would
+  catch that. Recorded in ARCHITECTURE §7.0. Slice 5's reaction batch must use query-builder
+  items with `sql` fragments inside (for example `db.update(posts).set({...})` with `sql` values), not
+  raw `sql` statements.
+- **Concurrent requests through `exports.default.fetch` are not reliably concurrent.** A trace showed
+  the Worker receiving them in waves (one or two first, the rest only after those finished). With a
+  check-then-insert in the handler, the HTTP race test caught it in only ~1 of 10 warm runs, whether
+  with 5 or 10 requests. Calling `createPost()` directly with `Promise.all` catches a read-then-write
+  every time, so that test is the real proof; the HTTP test stays as the end-to-end check §15 asks
+  for. Recorded in ARCHITECTURE §15. Use the same pattern for reactions (Slice 5).
+- Vitest here prints `console.log` output only for failing tests, so add a deliberate `throw` when
+  tracing a passing test.
+- Not changed, but noticed: §10.1 says authed responses carry `Cache-Control: private, no-store`.
+  Neither `/me` nor `POST /posts` sets it (requests with `Authorization` aren't stored by shared
+  caches anyway). Worth a one-line fix in `requireBot` some time; ask first.
+- Not touched, as instructed: `wrangler.jsonc`, tests-in-CI (Slice A), burst limits (Slice 1.1).
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -218,8 +290,8 @@ Status: `[ ]` Deferred by the user on 2026-10-11 ("test in ci later"). Don't sta
 
 ### Slice 1: register rate limits, hourly window in D1
 
-Status: `[x]` Done and verified on `feat/register-rate-limit` (PR pending). See Working Notes
-2026-10-11, Slice 1 session. The implementation differs from the sketch below in one way: the check is
+Status: `[x]` Done and verified. Merged as `765be6d` (PR #5). See Working Notes 2026-10-11, Slice 1
+session. The implementation differs from the sketch below in one way: the check is
 an atomic conditional insert (the plan's second option), not a count before the insert.
 
 - Goal: at most 5 registrations per IP per hour (§8.7), answered with `429 rate_limited` and a
@@ -275,7 +347,10 @@ Status: `[ ]` Blocked on Open Question 1.
 
 ### Slice 2: `POST /posts`
 
-Status: `[ ]`
+Status: `[x]` Done and verified on `feat/post-create` (PR pending). See Working Notes 2026-10-11,
+Slice 2 session. Differences from the sketch below: the `UPDATE` also checks `status = 0`, the batch
+ends with a read-back of the bot, and the insert is a Drizzle insert-select (raw `sql` can't go in a
+D1 batch in drizzle-orm 0.45).
 
 - Goal: a bot can post. Cooldown enforced atomically (§7.1, §8.4).
 - Why here: the core write. Reads (feed) come after there is something to read.
@@ -433,27 +508,26 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 2: `POST /posts`.** Slice A (tests in CI) is deferred by the user and Slice 1.1 waits on the
-Rate Limiting binding (Open Question 1), so the core write comes next. `AGENTS.md` is deliberately
-unchanged, so the user will point you at this file.
+**Slice 3: `GET /posts/:id` and `DELETE /posts/:id`.** Slice A (tests in CI) is still deferred by the
+user and Slice 1.1 still waits on the Rate Limiting binding (Open Question 1). `AGENTS.md` is
+deliberately unchanged, so the user will point you at this file.
 
 Start here:
 
-1. `git fetch origin`. If the Slice 1 PR (`feat/register-rate-limit`) is merged:
-   `git switch main && git pull`, then `git switch -c feat/post-create`. If it is not merged and the
-   user wants to continue anyway, branch from `feat/register-rate-limit`. Don't use the `gh` API
-   heavily if it is rate limited; `git` over SSH is unaffected.
-2. Read `AGENTS.md`, then ARCHITECTURE §7.1 (create post), §8.1 (post object), §8.4 and §8.7, then
-   `apps/site/src/worker/api.ts` (`/validate` shows how `checkContent` is called and `/me` the cooldown
-   fields), `db/queries.ts` (`createBot()` is the pattern for an atomic conditional insert) and
-   `http.ts` (`tooManyRequests()`).
-3. `vp test` should report 606 passing before you change anything (601 if you branch from a `main`
-   that doesn't have Slice 1). Use `mise run dev` only if you need a live server; check port 5173
-   first (`lsof -ti :5173`), because one may already be running, and never kill a server you didn't
-   start. Locally every request comes from `127.0.0.1` (see the Slice 1 findings).
-4. Follow the Slice 2 section above. Test helpers: `insertBot(username, { lastPostAt, ... })` returns
-   `{ id, key }`; `api(path, { key, json })`.
+1. `git fetch origin`. If the Slice 2 PR (`feat/post-create`) is merged:
+   `git switch main && git pull`, then `git switch -c feat/post-read-delete`. If it is not merged and
+   the user wants to continue anyway, branch from `feat/post-create`. Don't use the `gh` API heavily
+   if it is rate limited; `git` over SSH is unaffected.
+2. Read `AGENTS.md`, then ARCHITECTURE §7.0 (the batch note), §7.1 (create post, delete post), §7.2,
+   §8.1, §8.2, §8.4 and §10.1, then `db/queries.ts` (`createPost()`, `PostRow`), `serialize.ts`
+   (`serializePost()`) and `test/posts.test.ts`.
+3. `vp test` should report 620 passing before you change anything (606 on a `main` without Slice 2).
+   Use `mise run dev` only if you need a live server; check port 5173 first (`lsof -ti :5173`),
+   because one may already be running, and never kill a server you didn't start.
+4. Follow the Slice 3 section above. Select into `PostRow` (join `bots` for `username`) and reuse
+   `serializePost()`. Reads use `readDb()`. Remember: batch items must be query builders, not raw
+   `sql` statements (§7.0). Seed posts with `createPost()` or a direct insert, and reactions by hand.
 5. Ask the user before touching `wrangler.jsonc` bindings.
 6. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this
-   file's Slice 2 is `[x]` with the exact commands under Working Notes, and `Next Slice` points at
-   Slice 3.
+   file's Slice 3 is `[x]` with the exact commands under Working Notes, and `Next Slice` points at
+   Slice 4.

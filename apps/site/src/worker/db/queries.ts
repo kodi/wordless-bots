@@ -1,6 +1,6 @@
-import { and, count, eq, gt, inArray, min, or, sql } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNull, lte, min, or, sql } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
-import { bots } from "./schema.ts";
+import { BOT_STATUS, bots, posts } from "./schema.ts";
 
 export type Db = DrizzleD1Database;
 
@@ -125,6 +125,81 @@ export async function ipSignups(db: Db, regIpHash: Uint8Array, since: number) {
     .where(botsFromIp(regIpHash, since))
     .get();
   return { count: row?.count ?? 0, oldest: row?.oldest ?? null };
+}
+
+/** A post with its author's username: what `serializePost()` turns into the §8.1 post object. */
+export type PostRow = {
+  id: number;
+  username: string;
+  content: string;
+  createdAt: number;
+  reactionTotal: number;
+  /** JSON `[["🔥",7],["🤖",3]]`, as stored. */
+  reactionTop: string;
+};
+
+export type NewPost = { botId: number; content: string; createdAt: number };
+
+export type CreatePostResult =
+  | { created: true; id: number }
+  | { created: false; reason: "cooldown"; lastPostAt: number }
+  | { created: false; reason: "banned" };
+
+/** The bot is active and its last post is at least `cooldownMs` before `at`. */
+const mayPost = (botId: number, at: number, cooldownMs: number) =>
+  and(
+    eq(bots.id, botId),
+    eq(bots.status, BOT_STATUS.active),
+    or(isNull(bots.lastPostAt), lte(bots.lastPostAt, at - cooldownMs)),
+  );
+
+/**
+ * Inserts a post and moves the bot's cooldown, in one batch (§7.1). The insert and the update share one
+ * predicate and run in one transaction, so they succeed or fail together, and D1's serialized writes
+ * let only one of two concurrent posts through. The batch ends by reading the bot back, so a refusal
+ * reports the `last_post_at` that blocked it.
+ *
+ * The insert is `INSERT ... SELECT ... FROM bots WHERE <may post>`: one row if the bot may post, none
+ * if not. It is built with the query builder because drizzle-orm 0.45's D1 `batch()` can't run raw
+ * `sql` statements that have parameters. Drizzle's insert-select writes every column, so the select
+ * lists them all in table order, with the defaults of a new post.
+ */
+export async function createPost(
+  db: Db,
+  post: NewPost,
+  cooldownMs: number,
+): Promise<CreatePostResult> {
+  const allowed = mayPost(post.botId, post.createdAt, cooldownMs);
+  const newPost = {
+    id: sql<number>`NULL`.as("id"), // AUTOINCREMENT picks it
+    botId: bots.id,
+    content: sql<string>`${post.content}`.as("content"),
+    createdAt: sql<number>`${post.createdAt}`.as("created_at"),
+    reactionTotal: sql<number>`0`.as("reaction_total"),
+    reactionTop: sql<string>`'[]'`.as("reaction_top"),
+    hidden: sql<number>`0`.as("hidden"),
+  };
+  const [inserted, , after] = await db.batch([
+    db
+      .insert(posts)
+      .select(db.select(newPost).from(bots).where(allowed))
+      .returning({ id: posts.id }),
+    db
+      .update(bots)
+      .set({ lastPostAt: post.createdAt, postCount: sql`${bots.postCount} + 1` })
+      .where(allowed),
+    db
+      .select({ status: bots.status, lastPostAt: bots.lastPostAt })
+      .from(bots)
+      .where(eq(bots.id, post.botId)),
+  ]);
+  if (inserted[0] !== undefined) return { created: true, id: inserted[0].id };
+  const bot = after[0];
+  // Active with no last post would have been allowed, so that leaves a ban (or a deleted bot).
+  if (bot?.status !== BOT_STATUS.active || bot.lastPostAt === null) {
+    return { created: false, reason: "banned" };
+  }
+  return { created: false, reason: "cooldown", lastPostAt: bot.lastPostAt };
 }
 
 /** Drizzle wraps the driver error, so look through `cause` too. */

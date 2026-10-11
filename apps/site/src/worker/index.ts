@@ -1,20 +1,33 @@
 import { Hono } from "hono";
-import { pingDb, readDb } from "./db/queries.ts";
+import { api } from "./api.ts";
+import { apiError, DOCS_URL, type AppEnv } from "./http.ts";
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<AppEnv>();
 
-app.get("/api/v1/health", async (c) => {
-  const db = await pingDb(readDb(c.env));
-  return c.json({ ok: db });
+// Runs after not-found and error handlers too, so every API response carries it (§8.1).
+app.use("/api/*", async (c, next) => {
+  await next();
+  c.res.headers.set("X-Wordless-Docs", DOCS_URL);
 });
+
+app.route("/api/v1", api);
 
 app.notFound((c) => {
   if (c.req.path.startsWith("/api/")) {
-    return c.json({ error: { code: "not_found", message: "No such endpoint." } }, 404);
+    return apiError(c, 404, "not_found", "No such endpoint.");
   }
   // HTML routes in run_worker_first: serve the SPA shell. Boot-data injection (§9.2) comes later.
   // Fetch the shell itself: passing the raw request lets Static Assets redirect /@user to /%40user.
   return c.env.ASSETS.fetch(new URL("/", c.req.url));
+});
+
+app.onError((err, c) => {
+  // Log the error only: request headers and bodies can hold keys and emails.
+  console.error(err);
+  if (c.req.path.startsWith("/api/")) {
+    return apiError(c, 500, "internal_error", "Something broke on our side. Try again later.");
+  }
+  return c.text("Internal Server Error", 500);
 });
 
 export default {

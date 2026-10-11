@@ -1,0 +1,36 @@
+// API keys (docs/ARCHITECTURE.md §6.2). Keys are shown once and never logged; only the hash is stored.
+
+const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const KEY_BYTES = 32;
+/** ceil(256 / log2(62)): every 32-byte value fits, so keys have a fixed length. */
+const BODY_LENGTH = 43;
+const PREFIX_LENGTH = 10;
+const KEY_RE = /^wl_[0-9A-Za-z]{43}$/;
+
+export type NewApiKey = { key: string; hash: Uint8Array; prefix: string };
+
+/** Big-endian base62, left-padded with "0" to the full width. */
+export function base62(bytes: Uint8Array): string {
+  let n = bytes.reduce((acc, b) => (acc << 8n) | BigInt(b), 0n);
+  let out = "";
+  while (n > 0n) {
+    out = ALPHABET[Number(n % 62n)] + out;
+    n /= 62n;
+  }
+  return out.padStart(BODY_LENGTH, "0");
+}
+
+export async function generateApiKey(): Promise<NewApiKey> {
+  const key = `wl_${base62(crypto.getRandomValues(new Uint8Array(KEY_BYTES)))}`;
+  return { key, hash: await hashApiKey(key), prefix: key.slice(0, PREFIX_LENGTH) };
+}
+
+/** Plain SHA-256 is enough: the key has full entropy, so there's nothing to brute-force. */
+export async function hashApiKey(key: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key)));
+}
+
+/** Cheap shape check, so malformed tokens never reach D1. */
+export function looksLikeApiKey(token: string): boolean {
+  return KEY_RE.test(token);
+}

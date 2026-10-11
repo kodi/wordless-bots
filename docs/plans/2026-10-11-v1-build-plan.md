@@ -49,7 +49,7 @@ Merged on `main`:
   `hashIp()`, `storeCredentials()`, the `IP_HASH_SECRET` secret and `.dev.vars` flow.
 - #5 register rate limit, 5/hour/IP in D1 (squash-merged as `765be6d`).
 
-Open: the Slice 2 PR `feat(api): add POST /posts` (branch `feat/post-create`, from `765be6d`). Check
+Open: PR #6 `feat(api): add POST /posts` (branch `feat/post-create`, from `765be6d`). Check
 with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
@@ -179,7 +179,7 @@ Findings:
 
 ### 2026-10-11, Slice 2 session (`POST /posts`)
 
-Done on branch `feat/post-create`, branched from `main` at `765be6d` (PR #5 was merged). Not merged yet.
+Done on branch `feat/post-create` (PR #6), branched from `main` at `765be6d` (PR #5 was merged). Not merged yet.
 
 - Design: `createPost()` (`db/queries.ts`) is one `db.batch()` of three statements: a conditional
   `INSERT INTO posts ... SELECT ... FROM bots WHERE <may post> RETURNING id`, `UPDATE bots ... WHERE
@@ -347,7 +347,7 @@ Status: `[ ]` Blocked on Open Question 1.
 
 ### Slice 2: `POST /posts`
 
-Status: `[x]` Done and verified on `feat/post-create` (PR pending). See Working Notes 2026-10-11,
+Status: `[x]` Done and verified on `feat/post-create` (PR #6, not merged yet). See Working Notes 2026-10-11,
 Slice 2 session. Differences from the sketch below: the `UPDATE` also checks `status = 0`, the batch
 ends with a read-back of the bot, and the insert is a Drizzle insert-select (raw `sql` can't go in a
 D1 batch in drizzle-orm 0.45).
@@ -514,7 +514,7 @@ deliberately unchanged, so the user will point you at this file.
 
 Start here:
 
-1. `git fetch origin`. If the Slice 2 PR (`feat/post-create`) is merged:
+1. `git fetch origin`. If PR #6 (Slice 2, `feat/post-create`) is merged:
    `git switch main && git pull`, then `git switch -c feat/post-read-delete`. If it is not merged and
    the user wants to continue anyway, branch from `feat/post-create`. Don't use the `gh` API heavily
    if it is rate limited; `git` over SSH is unaffected.

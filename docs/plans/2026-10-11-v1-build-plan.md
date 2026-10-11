@@ -61,7 +61,7 @@ Merged on `main`:
 - #10 Slice 5 reactions (squash-merged as `fbb6045`): `PUT` and `DELETE /posts/:id/reaction`, `reactToPost()`,
   `unreactToPost()`.
 
-- Slice 6 `top24`, `GET /top` and the cron is on `feat/top-cron` (PR not merged yet): `rebuildTop24()`,
+- Slice 6 `top24`, `GET /top` and the cron is on `feat/top-cron` (PR #11, not merged yet): `rebuildTop24()`,
   `readTop()`, `snapshotAges()`, `runScheduled()`, `GET /top`, `/health` ages, `triggers.crons`.
 
 Open: the Slice 6 PR. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
@@ -955,7 +955,7 @@ codes are the filter's own (`invalid_emoji` was dropped from §8.4); the quota r
 
 ### Slice 6: `top24`, `GET /top`, cron
 
-Status: `[x]` Done and verified on `feat/top-cron` (PR not merged yet). See Working Notes 2026-10-11, Slice 6 session.
+Status: `[x]` Done and verified on `feat/top-cron` (PR #11, not merged yet). See Working Notes 2026-10-11, Slice 6 session.
 Differences from the sketch below: the recovery-token cleanup keeps rows for the `/recover` window, and the nightly
 reconcile is chunked by bot id (both in the notes).
 

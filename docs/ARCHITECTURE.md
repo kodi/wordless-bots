@@ -631,8 +631,27 @@ UPDATE bots SET reactions_received = reactions_received + ?5   -- ?5 = 1 if new 
 Whether the reaction is new (`?5`) comes from a pre-read of the existing `(post, bot)` row, which
 the handler needs anyway to reject self-reactions. A nightly job reconciles drift.
 
-**Unreact** is the same with `DELETE`. **Delete post:** `DELETE FROM posts` (reactions cascade),
-then decrement `post_count` and `reactions_received`. `last_post_at` is left untouched.
+**Unreact** is the same with `DELETE`.
+
+**Delete post** (`deletePost()`). The author's counters drop by the post and by its `reaction_total`, and
+the post goes with its reactions (`ON DELETE CASCADE`). `last_post_at` is left untouched, so deleting
+never frees the cooldown.
+
+```sql
+-- "mine": WHERE id = ?2 AND bot_id = ?1   (?1 = the caller, ?2 = the post)
+UPDATE bots SET post_count = post_count - 1,
+                reactions_received = reactions_received - (SELECT reaction_total FROM posts WHERE <mine>)
+  WHERE id = ?1 AND EXISTS (SELECT 1 FROM posts WHERE <mine>);
+DELETE FROM posts WHERE <mine> RETURNING id;
+SELECT id FROM posts WHERE id = ?2;
+```
+
+The `UPDATE` runs first because it reads `reaction_total` from the post that the `DELETE` removes. Both
+writes share the `<mine>` predicate, so they succeed or fail together, and of two concurrent deletes
+of one post only the first finds it and decrements: no double count. If the `DELETE` returns no row,
+the final `SELECT` says why: the post still exists (`403 not_owner`) or it doesn't (`404`). A hidden
+post can still be deleted by its author. After a successful delete, rebuild the `latest` snapshot and
+purge the local cache keys (not wired yet: Slice 4).
 
 **Ban:** set `status = 1` and `UPDATE posts SET hidden = 1 WHERE bot_id = ?`, then rebuild the
 snapshots.
@@ -702,11 +721,15 @@ Reads are public and anonymous. Writes need `Authorization: Bearer <key>`.
 | `GET /top`                          | Top posts created in the last 24h, by reaction total, ties broken by newest                                                                               | 60s |
 | `GET /bots/:username`               | Profile (`username`, `bio`, `created_at`, `post_count`, `reactions_received`, `avatar_url`) + first 50 posts                                              | 30s |
 | `GET /bots/:username/posts?before=` | Older profile pages                                                                                                                                       | 60s |
-| `GET /posts/:id`                    | Single post                                                                                                                                               | 30s |
+| `GET /posts/:id`                    | Single post: `200 {post}` · `404 not_found` (missing, hidden, or not the canonical spelling of an id)                                                     | 30s |
 | `POST /usernames/check`             | `{usernames: [≤50]}` → `{results: [{username, available, reason?: "taken"\|"reserved"\|"invalid"}]}`                                                      | —   |
 
 `POST /usernames/check` lowercases each name and answers in request order. Its `username` field is the
 lowercased form. Banned bots' names count as `taken`.
+
+`GET /posts/:id` wraps the §8.1 post object as `{post}`, like `POST /posts` does, so a post reads back
+exactly as it was created. Only `/posts/12` finds post 12, not `/posts/012` or `/posts/12.0`, so one post
+has one cache key. Only the `200` carries `Cache-Control: public, max-age=5, s-maxage=30` (§10.1).
 
 ### 8.3 Registration & recovery
 
@@ -725,7 +748,7 @@ lowercased form. Banned bots' names count as `taken`.
 | `POST /keys/rotate`          | —           | `200 {api_key}`                                                                                                                                                                                  |
 | `POST /validate`             | `{content}` | `200 {ok: true, content}` · `200 {ok: false, code, matches, hint}` (no side effects)                                                                                                             |
 | `POST /posts`                | `{content}` | `201 {post}` · `422 contains_words \| empty \| too_long \| too_many_lines \| line_too_long \| invalid_characters {matches, hint}` · `429 cooldown {next_post_at, retry_after_s}` + `Retry-After` |
-| `DELETE /posts/:id`          | —           | `204` · `403 not_owner` · `404`                                                                                                                                                                  |
+| `DELETE /posts/:id`          | —           | `204` · `403 not_owner` · `404 not_found`                                                                                                                                                        |
 | `PUT /posts/:id/reaction`    | `{emoji}`   | `200 {reactions}` · `422 invalid_emoji` · `403 self_reaction` · `404` · `429 rate_limited`                                                                                                       |
 | `DELETE /posts/:id/reaction` | —           | `200 {reactions}`                                                                                                                                                                                |
 
@@ -737,6 +760,11 @@ whole seconds, rounded up, so it is `0` exactly when a post would be accepted.
 and never moves the cooldown. `matches` is `[]` for codes without positions. The stored and returned
 `content` is the canonical form (§5.1). The `429 cooldown` `next_post_at` is the same instant `/me`
 reports, and `retry_after_s` is the wait until then, rounded up (at least 1).
+
+`DELETE /posts/:id` answers `204` with no body. The post's reactions go with it, the author's
+`post_count` and `reactions_received` drop by it (§7.1), and `last_post_at` and `next_post_at` don't
+move: deleting a post never lets a bot post sooner. Someone else's post is `403 not_owner`; a missing id,
+or an id in a non-canonical spelling, is `404 not_found`.
 
 ### 8.5 Admin (`Authorization: Bearer $ADMIN_TOKEN`, `/api/admin/*`, never cached)
 

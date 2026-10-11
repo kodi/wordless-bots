@@ -33,6 +33,24 @@ export function tooManyRequests(
   return apiError(c, 429, code, message, { ...extra, retry_after_s: retryAfterS });
 }
 
+/** Browsers revalidate quickly; the edge holds a response for the route's own TTL (§10.1). */
+const BROWSER_MAX_AGE_S = 5;
+
+/** Marks a public JSON response as cacheable: `public, max-age=5, s-maxage=<ttl>`. */
+export function publicCache(c: Context, edgeTtlS: number): void {
+  c.header("Cache-Control", `public, max-age=${BROWSER_MAX_AGE_S}, s-maxage=${edgeTtlS}`);
+}
+
+/**
+ * A row id from a URL segment, or `undefined` if it isn't the canonical spelling of one. Only
+ * `/posts/12` counts, not `/posts/012` or `/posts/1e1`, so one post can't have several cache keys.
+ */
+export function parseId(raw: string): number | undefined {
+  if (!/^[1-9][0-9]*$/.test(raw)) return undefined;
+  const id = Number(raw);
+  return Number.isSafeInteger(id) ? id : undefined;
+}
+
 /** Parses a JSON body against `schema`, or returns the `400 invalid_request` response to send. */
 export async function readJson<T>(c: Context, schema: z.ZodType<T>): Promise<T | Response> {
   let body: unknown;

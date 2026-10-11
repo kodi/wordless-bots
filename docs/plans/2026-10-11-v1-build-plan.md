@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-12 (end of the Slice 9 session: key recovery and email).
+Last updated: 2026-10-12 (end of the Slice 10 session: agent docs).
 
 ## Summary
 
@@ -70,14 +70,16 @@ Merged on `main`:
 
 - #13 Slice 8 key rotation and `PATCH /me` (merged as `bd289f4`): `POST /keys/rotate`, `PATCH /me`, `rotateKey()`, `setBio()`.
 
-- Slice 9 key recovery and email is on `feat/recovery` (PR in review): `POST /recover`, `POST /recover/confirm`, `EmailSender`, the `EMAIL`
+- #14 Slice 9 key recovery and email (merged as `c8ddbf0`): `POST /recover`, `POST /recover/confirm`, `EmailSender`, the `EMAIL`
   binding, `issueRecoveryToken()`, `recoverKey()`.
 
-Open: the Slice 9 PR (`feat/recovery`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+- Slice 10 agent docs is on `feat/agent-docs` (PR #15, in review): `/llms.txt`, `/skill.md`, `/heartbeat.md`, `agent-docs.ts`, `docsUrl()`.
+
+Open: the Slice 10 PR (#15, `feat/agent-docs`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far, and `sendRecovery()`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
-`ip-hash.ts` (`keys.ts` also has `generateRecoveryToken()` and `hashRecoveryToken()`), `serialize.ts` (`iso()`, `serializePost()`, `serializeReactions()`, `serializeProfile()`), `feed.ts` (`latestPage()`, the pure paging
+`agent-docs.ts` (`renderDoc()`, `renderAgentDoc()`, `agentDocResponse()`; the templates are in `agent-docs/`), `ip-hash.ts` (`keys.ts` also has `generateRecoveryToken()` and `hashRecoveryToken()`), `serialize.ts` (`iso()`, `serializePost()`, `serializeReactions()`, `serializeProfile()`), `feed.ts` (`latestPage()`, the pure paging
 and gap rules), `cache.ts` (L0 and L1: `readLatestCached()`, `cachedResponse()`, `purgeLatest()`,
 `purgePost()`, `purgeProfile()`, `rebuildAndPurgeLatest()` and the `latestKey()`, `feedBeforeKey()`, `postKey()`, `topKey()`,
 `profileKey()`, `profileBeforeKey()` builders),
@@ -95,18 +97,18 @@ its response: rebuild `latest`, then purge; use it instead of calling `rebuildLa
 wait for `release()`; for what happens before a write lands), `ORIGIN`, `api()` and `nextIp()` in
 `helpers.ts`. `http.ts` has
 `apiError()`, `readJson()`, `readQuery()` and `intParam()` (zod query params in canonical spelling),
-`tooManyRequests()` (`429` with `Retry-After` and `retry_after_s`; reuse it for `429 cooldown` and
+`docsUrl(origin)` (the `X-Wordless-Docs` value), `tooManyRequests()` (`429` with `Retry-After` and `retry_after_s`; reuse it for `429 cooldown` and
 reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsername()` (the normalized username of a URL segment, or
 `undefined`) and `publicCache(c, ttlS)` (the
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 830 tests (57 shared, 506 wordfilter, 267 worker) on the Slice 9 branch; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
+Baseline: `vp test` runs 861 tests (57 shared, 506 wordfilter, 298 worker) on the Slice 10 branch; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
 `fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
 Not built yet: admin, form
-fallback, burst rate limits (the register hourly limit exists), agent docs (`/skill.md` etc.), all of the real UI,
+fallback, burst rate limits (the register hourly limit exists), all of the real UI,
 Analytics Engine events.
 
 Infra reality:
@@ -904,7 +906,7 @@ Findings:
 
 ### 2026-10-12, Slice 9 session (`POST /recover`, `POST /recover/confirm`, email)
 
-Done on branch `feat/recovery`, branched from `main` at `bd289f4` (Slice 8 was merged). The first commit fixed the stale Slice 8 statuses, the
+Done on branch `feat/recovery` (merged as `c8ddbf0`, #14), branched from `main` at `bd289f4` (Slice 8 was merged). The first commit fixed the stale Slice 8 statuses, the
 baseline and the email DNS lines. New binding (approved): `send_email` named `EMAIL`, at the top level and in `env.staging`, then
 `pnpm --filter site cf-typegen`. No migration (`recovery_tokens` was in `0000_init.sql`) and no new dependency or secret.
 
@@ -989,6 +991,73 @@ Findings:
   (399 deletions) before any PR, and redone with anchors asserted unique.
 - Not changed, as instructed: the Rate Limiting binding (Slice 1.1), tests in CI (Slice A), `/top` purging, the other `wrangler.jsonc` bindings.
 
+### 2026-10-12, Slice 10 session (agent docs)
+
+Done on branch `feat/agent-docs`, branched from `main` at `c8ddbf0`. The first commit fixed the stale Slice 9 statuses and the baseline. No binding,
+no dependency, no migration and no new var.
+
+- Design:
+  - **Templates are bundled, not assets.** `src/worker/agent-docs/{llms.txt,skill.md,heartbeat.md}` are imported with Vite's `?raw`
+    (`raw.d.ts` types it) and rendered by `agent-docs.ts`. §11 said `apps/site/public/`; that would also ship the raw templates as static files
+    and need an `ASSETS` fetch. The routes were already in `run_worker_first`; `index.ts` adds three `app.get` handlers.
+  - **`{{BASE_URL}}` is the request origin**, like every other link the API builds, so staging documents link to staging. That is safe only
+    while Worker routes are exact hostnames (Slice 14 notes). Cache-Control is `public, max-age=300, s-maxage=300`; no Cache API layer, because
+    rendering is one string replace.
+  - **Limits are placeholders** (`{{POST_COOLDOWN_MIN}}`, `{{POST_MAX_GRAPHEMES}}`, ...), filled from `packages/shared` (AGENTS.md: no
+    hardcoded limits). An unknown placeholder throws.
+  - **`DOCS_URL` is gone**: `docsUrl(origin)` in `http.ts`. Staging should differ (a staging response pointing at production docs would send
+    its bots to production), and the origin does it with no new var.
+  - The documents describe the API as built: register, store key, post, validate, feed, react, `/me`, `PATCH /me`, rotate, recover, confirm,
+    every error code (read from `api.ts` and `auth.ts`, not the older sketches). They say the form fallback is not available yet (Slice 12).
+- Scheduler syntax, checked against the current docs on 2026-10-12 (not from memory):
+  - **OpenClaw renamed its CLI**: `openclaw automations create "<cron>" "<prompt>" --name ... --session isolated` (`openclaw cron` is an
+    alias; `add` and `create` are aliases). Top-of-hour recurring jobs are staggered by up to 5 minutes unless `--exact`, so the docs use
+    minute 17. List with `openclaw automations list`, delete with `remove <jobId>`. There is no flag to attach a skill, so the prompt points at
+    `heartbeat.md`. Sources: docs.openclaw.ai/automation/cron-jobs and its `schedules`, `payloads`, `managing-jobs` pages.
+  - **Hermes**: `hermes cron create "<schedule>" "<prompt>" --skill <name> --name <n>`, or `/cron add ...`. A cron expression, `every 1h` or
+    `30m` all repeat. Jobs only fire while the gateway daemon runs (`hermes gateway install` or `hermes gateway`); `hermes cron list` and `status`
+    check it. Source: hermes-agent.nousresearch.com/docs/user-guide/features/cron.
+  - Not re-verified (stable tool interfaces): `claude -p ... --allowedTools`, `codex exec`, `schtasks /create /sc hourly /st`, a launchd
+    `StartCalendarInterval` plist. Muse is still undocumented.
+- **`ADMIN_TOKEN` (user's instruction, 2026-10-12):** generated locally with `openssl rand -hex 32` and saved with `doppler secrets set ADMIN_TOKEN
+  --project wordless --config stg|prd`, piped through stdin so it never reached argv, history or output. Checked by name, length (64) and that the
+  two differ, never by value. Both configs held only the three `DOPPLER_*` variables before. Nothing was pushed to Cloudflare and no repo file
+  changed for it (Slice 11 does `secrets.required` and `.dev.vars.example`). ARCHITECTURE §14 and decision 43 record where it lives.
+- Tests (31 new, 830 to 861): `test/agent-docs.test.ts`. Serving (8): type, cache and `nosniff` for each of the three, staging origin never
+  falls back to production, `X-Wordless-Docs` follows the origin, an undefined placeholder throws. Filter agreement (23): every ✅ and ❌ line in
+  skill.md against `checkContent`, and every `-d '{...}'` example body (`content`, `bio`, `emoji`) against its filter.
+
+Verified (all from the repo root):
+
+- `vp check --no-fmt`: clean (67 files). `vp fmt` run on `apps/site/src/worker`, `apps/site/test`, `docs/plans` and `docs/ARCHITECTURE.md` only.
+  Plain `vp check` still fails on the user's untracked `docs/design/` files; not mine, left alone.
+- `vp test`: 31 files, **861 passed** (830 + 31).
+- `vp run -r build`: passed (Worker 115.82 kB gzip, up from 107.14 because of the documents; SPA 94.96 kB gzip).
+- Mutation checks, each reverted, `vp test apps/site/test/agent-docs.test.ts` per mutant (a script that backs the file up and restores it): 8 of
+  8 caught. A word marked allowed (1 failing), an allowed example marked rejected (1), a word in an example body (1), a word as the reaction
+  example (1), a limit placeholder with no value (the file fails to collect), origin hardcoded in `renderDoc` (3), TTL changed (3),
+  `X-Wordless-Docs` hardcoded (1).
+- Live check on my own dev server (`cd apps/site && vp dev --port 5174 --strictPort`, stopped by pid afterwards; the user's :5173, pid 53728, was
+  left alone): the three documents served with the right type and cache headers and `localhost:5174` links, `HEAD` works, the SPA still answers
+  `/`. Then the documented flow with curl as two bots: register (keys in the response match skill.md), post, the `429 cooldown` with
+  `Retry-After: 3300`, `contains_words` with offsets, `feed?since=0`, a reaction, `403 self_reaction`, `/me`, `PATCH /me` clearing the bio, a
+  rotation (old key `invalid_api_key`, new key works), the heartbeat's `jq` cursor-save snippet, `POST /recover` (identical `202`s for a
+  real and an unknown name), then the token from the simulated mail: `200` on the body, `410 token_invalid` on the second use.
+  Cleanup: `docprobe_%` bots, their posts, reactions and tokens deleted from the local D1 with scoped statements, the `latest` snapshot row that
+  held a probe post removed, the simulated mail files gone.
+
+Findings and mistakes:
+
+- A blanket `DELETE FROM` of every local table was refused by the permission classifier. It was broader than needed: the local D1 only held my
+  probe rows, so scoped `WHERE username LIKE 'docprobe\_%'` statements did the job.
+- My first live run printed `jq` parse errors: zsh's `echo` expanded the backslashes in `store_credentials`' Windows path. The API was fine; use
+  `printf '%s'` when piping JSON in zsh. That run still created two probe bots, which the cleanup removed.
+- `pkill -f "vp dev --port 5174"` did not match (the process is a `node` child); stop it by pid after checking its command line.
+- The test finds `skill.md`'s examples with the regex `^- (✅|❌) ` plus text between backticks, one per line. Keep that shape when editing.
+- The docs tell agents to keep their key in `~/.config/wordless/credentials.json`; the recovery page (`/recover`, Slice 13d) is not built, so skill.md
+  also documents `POST /recover/confirm` with the token from the link for owners who can't use it.
+- Not changed, as instructed: the Rate Limiting binding (Slice 1.1), tests in CI (Slice A), `/top` purging, DNS, any Cloudflare secret or binding.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -1002,8 +1071,8 @@ Ask the user rather than assuming:
    owner's address may be a verified destination on the free plan. Settle it in the dashboard (Billing) or with a mail to a
    second, unverified address. The fallback is Resend behind the same `EmailSender` interface; switching needs the user's go-ahead.
 3. ~~JS budget vs React~~ Resolved 2026-10-11: React stays, budget is 130 KB gzip.
-4. **First deploy** of staging and prod (Slice 14), and who sets any new remote secrets, such as
-   `ADMIN_TOKEN` in Slice 11. `IP_HASH_SECRET` is already set on both.
+4. **First deploy** of staging and prod (Slice 14), and who sets any new remote secrets. `IP_HASH_SECRET` is already set on both.
+   `ADMIN_TOKEN` is generated and in Doppler (`wordless`, `stg` and `prd`, 2026-10-12) but **not yet a Cloudflare secret**; ask before `wrangler secret put`.
 5. ~~Cron triggers~~ Resolved 2026-10-11: the user approved `triggers.crons: ["* * * * *"]` (Slice 6).
 6. ~~What `cursor` is when the feed is empty.~~ Resolved in Slice 4: it echoes the caller's `since`, or
    `0` with none (ARCHITECTURE §8.1).
@@ -1220,7 +1289,7 @@ empty bio clears it.
 
 ### Slice 9: key recovery and email
 
-Status: `[x]` Done and verified on `feat/recovery` (PR in review). See Working Notes 2026-10-12, Slice 9 session. Differences from the sketch
+Status: `[x]` Done and verified, merged as `c8ddbf0` (#14). See Working Notes 2026-10-12, Slice 9 session. Differences from the sketch
 below: `/recover` answers before any database work or mail (`waitUntil`), a confirm also spends the bot's other unused links, a live token
 of a banned bot is `403 banned`, and a mail that fails to send deletes its token. The `email_in_use` hint needed no change (it already
 pointed at `/recover` with no caveat).
@@ -1230,9 +1299,11 @@ pointed at `/recover` with no caveat).
 
 ### Slice 10: agent docs
 
-Status: `[ ]`
+Status: `[x]` Done and verified on `feat/agent-docs` (PR #15, in review). See Working Notes 2026-10-12, Slice 10 session. Differences from the
+sketch below: the templates live in `src/worker/agent-docs/` (bundled with `?raw`), not in `public/`; the limits they quote are placeholders
+filled from `packages/shared`; `DOCS_URL` became `docsUrl(origin)` (no new var).
 
-- `public/llms.txt`, `skill.md`, `heartbeat.md` with `{{BASE_URL}}` templating, served by the Worker
+- `llms.txt`, `skill.md`, `heartbeat.md` with `{{BASE_URL}}` templating, served by the Worker
   with 5-minute caching (§11). Check the OpenClaw and Hermes cron syntax against their current docs
   while writing (§11 note). Replace the hard-coded `DOCS_URL` in `http.ts` if staging should differ.
 
@@ -1242,6 +1313,11 @@ Status: `[ ]`
 
 - `/api/admin/*` with `ADMIN_TOKEN` (add it to `secrets.required` and `.dev.vars.example`) and
   `scripts/admin.ts`. Ban hides all of the bot's posts and rebuilds snapshots.
+- **The token exists already** (user's go-ahead, 2026-10-12): Doppler project `wordless`, configs `stg` and `prd`, secret `ADMIN_TOKEN`, a
+  different 64-hex value in each, generated locally. Read it with `doppler secrets get ADMIN_TOKEN --project wordless --config stg --plain`
+  (use `prd` for production) and never print it. `scripts/admin.ts` can read it from `doppler run` or the environment. The Cloudflare copy
+  (`wrangler secret put ADMIN_TOKEN`, and `--env staging`) is not set yet: do it at the first deploy (Slice 14), piping the value from
+  Doppler, and ask first. A local `.dev.vars` value stays a throwaway (nothing was added to the Doppler `dev` config).
 
 ### Slice 12: form fallback
 
@@ -1249,6 +1325,8 @@ Status: `[ ]`
 
 - Form-encoded writes with `api_key` in the body, and the no-JS `GET /act` page (§8.6). Never accept
   keys in URLs.
+- Update `skill.md` and `heartbeat.md` in the same PR: both now say a form fallback "is not available yet" (hosted-assistants paragraph
+  in `heartbeat.md`, and §11 of ARCHITECTURE). `test/agent-docs.test.ts` checks their examples against the filter.
 
 ### Slice 13: the web UI (several PRs)
 
@@ -1287,19 +1365,17 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 10: agent docs.** It is unblocked. Slice 11 (admin) needs `ADMIN_TOKEN` as a new secret, so ask first; Slice 12 (form fallback) is also
-unblocked. Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the Rate Limiting binding (Open Question 1). Workers
-Paid is unverified (Open Question 2); it matters for production recovery mail, not for Slice 10. `AGENTS.md` is deliberately unchanged, so the user
-will point you at this file.
+**Slice 11: admin endpoints and CLI.** It is unblocked: the user approved `ADMIN_TOKEN` on 2026-10-12 and the values already sit in Doppler (see the
+Slice 11 section for where and how to read them). Add it to `secrets.required` (top level and `env.staging`) and `.dev.vars.example`, but ask
+before running `wrangler secret put`. Slice 12 (form fallback) is also unblocked. Slice A (tests in CI) is still deferred by the user and Slice 1.1
+still waits on the Rate Limiting binding (Open Question 1). Workers Paid is unverified (Open Question 2); it matters for production recovery mail.
+`AGENTS.md` is deliberately unchanged, so the user will point you at this file.
 
-Start here (Slice 10):
+Start here (Slice 11):
 
-1. `git fetch origin && git switch main && git pull`, then branch. Slice 9 should be merged by then; check with `git log origin/main --oneline -3`.
-2. Read `AGENTS.md`, the Cross-slice rules, the "Slice 9" Working Notes and the Slice 10 section above, then ARCHITECTURE §11, §2.1 to §2.4, §8.1 and
-   §10.1. Check the OpenClaw and Hermes cron syntax against their current docs while writing (§11 note).
-   - The docs must describe what the API does now: recovery (`POST /recover`, `POST /recover/confirm`), rotation, `PATCH /me`, reactions, the
-     error codes. `X-Wordless-Docs` already points at `DOCS_URL` in `http.ts`.
-3. `vp test` should report 830 passing before you change anything.
+1. `git fetch origin && git switch main && git pull`, then branch. Slice 10 should be merged by then; check with `git log origin/main --oneline -3`.
+2. Read `AGENTS.md`, the Cross-slice rules, the Slice 10 Working Notes, the Slice 11 section above, and ARCHITECTURE §8.5, §13, §7.1 (ban) and §6.2.
+3. `vp test` should report 861 passing before you change anything.
 4. Done when `vp check --no-fmt`, `vp test` and `vp run -r build` pass (plain `vp check` fails on the untracked `docs/design/` files until the user
-   formats or commits them), ARCHITECTURE matches the code, this file's Slice 10 is `[x]` with the exact commands under Working Notes, and `Next Slice`
-   points at the next unblocked slice.
+   formats or commits them), ARCHITECTURE matches the code, this file's Slice 11 is `[x]` with the exact commands under Working Notes, and `Next Slice`
+   points at Slice 12.

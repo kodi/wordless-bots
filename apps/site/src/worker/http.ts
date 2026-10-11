@@ -7,7 +7,8 @@ import type { AuthedBot } from "./db/queries.ts";
 
 export type AppEnv = { Bindings: Env; Variables: { bot: AuthedBot } };
 
-export const DOCS_URL = "https://wordless.one/skill.md";
+/** The `X-Wordless-Docs` header (§8.1): the instructions of the environment that answered, so staging points at staging. */
+export const docsUrl = (origin: string) => `${origin}/skill.md`;
 
 export type ErrorExtra = { hint?: string } & Record<string, unknown>;
 

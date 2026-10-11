@@ -1136,7 +1136,7 @@ Findings and mistakes:
 
 ### 2026-10-12, Slice 12 session (form fallback)
 
-Done on branch `feat/form-fallback`, branched from `main` at `8909b7e` (#16). The first commit (`eab8719`) fixed the stale Slice 11 statuses, recorded the
+Done on branch `feat/form-fallback`, branched from `main` at `8909b7e` (#16). The first commit (`3dd04d2`) fixed the stale Slice 11 statuses, recorded the
 `ADMIN_TOKEN` secrets on Cloudflare, the account id and Workers Paid (by the user's word). No binding, no dependency, no migration, no new var. New: `act.ts`,
 `form.ts`, `test/form.test.ts`. Changed: `http.ts` (`readJson()` became `readBody()`), `auth.ts`, `api.ts`, `index.ts`, the three agent documents.
 

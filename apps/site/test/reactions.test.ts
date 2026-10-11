@@ -264,6 +264,10 @@ test("a bot banned after auth can't react or unreact, and nothing is written", a
   await db().update(bots).set({ status: BOT_STATUS.banned }).where(eq(bots.id, reactor.id));
 
   expect(await react(reactor.id, postId, "💀")).toEqual({ ok: false, reason: "banned" });
+  // A first reaction is the case where the author's counter would move.
+  const fresh = await seedPost(author.id);
+  expect(await react(reactor.id, fresh, "💀")).toEqual({ ok: false, reason: "banned" });
+  expect(await rowOf(fresh, reactor.id)).toBeUndefined();
   expect(await unreactToPost(db(), reactor.id, postId)).toEqual({ ok: false, reason: "banned" });
   expect(await rowOf(postId, reactor.id)).toMatchObject({ emoji: "🔥" });
   expect(await received(author.id)).toBe(1);

@@ -73,9 +73,9 @@ Merged on `main`:
 - #14 Slice 9 key recovery and email (merged as `c8ddbf0`): `POST /recover`, `POST /recover/confirm`, `EmailSender`, the `EMAIL`
   binding, `issueRecoveryToken()`, `recoverKey()`.
 
-- Slice 10 agent docs is on `feat/agent-docs` (PR in review): `/llms.txt`, `/skill.md`, `/heartbeat.md`, `agent-docs.ts`, `docsUrl()`.
+- Slice 10 agent docs is on `feat/agent-docs` (PR #15, in review): `/llms.txt`, `/skill.md`, `/heartbeat.md`, `agent-docs.ts`, `docsUrl()`.
 
-Open: the Slice 10 PR (`feat/agent-docs`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+Open: the Slice 10 PR (#15, `feat/agent-docs`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far, and `sendRecovery()`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -1299,7 +1299,7 @@ pointed at `/recover` with no caveat).
 
 ### Slice 10: agent docs
 
-Status: `[x]` Done and verified on `feat/agent-docs` (PR in review). See Working Notes 2026-10-12, Slice 10 session. Differences from the
+Status: `[x]` Done and verified on `feat/agent-docs` (PR #15, in review). See Working Notes 2026-10-12, Slice 10 session. Differences from the
 sketch below: the templates live in `src/worker/agent-docs/` (bundled with `?raw`), not in `public/`; the limits they quote are placeholders
 filled from `packages/shared`; `DOCS_URL` became `docsUrl(origin)` (no new var).
 

@@ -1,0 +1,47 @@
+# Local setup: `mise trust && mise install`, then `mise run dev`.
+# The postinstall hook installs deps and migrates the local D1, so there is nothing else to run.
+
+[tools]
+# Node 24 LTS. Keep in sync with .node-version (CI reads that file) and `engines` in package.json.
+node = "24"
+# Keep in sync with devEngines.packageManager in package.json.
+pnpm = "12.11.2"
+
+[env]
+# Puts the workspace's pinned `vp`, `wrangler` and `drizzle-kit` on PATH. No global installs needed.
+_.path = ["{{config_root}}/node_modules/.bin"]
+
+[hooks]
+postinstall = "pnpm install && pnpm --filter site db:migrate:local"
+
+[tasks.dev]
+description = "Start the site: SPA with HMR + Worker and local D1 (applies pending migrations first)"
+run = "pnpm dev"
+
+[tasks.check]
+description = "Format, lint and type check"
+run = "vp check"
+
+[tasks.test]
+description = "Run all tests"
+run = "vp test"
+
+[tasks.build]
+description = "Build every package"
+run = "vp run -r build"
+
+[tasks.ready]
+description = "Everything CI runs: check, test, build"
+run = "pnpm ready"
+
+[tasks."db:generate"]
+description = "Generate a migration from the Drizzle schema"
+run = "vp run site#db:generate"
+
+[tasks."db:migrate"]
+description = "Apply pending migrations to the local D1"
+run = "vp run site#db:migrate:local"
+
+[tasks."db:reset"]
+description = "Wipe the local D1 and re-apply all migrations"
+run = ["rm -rf apps/site/.wrangler/state/v3/d1", "vp run site#db:migrate:local"]

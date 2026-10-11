@@ -239,6 +239,14 @@ wordless-bots/
 Vite+ (`vite-plus`, currently 1.1.0) is the only dev tool entry point. You can install `vp`
 globally (`curl -fsSL https://vite.plus | bash`) or run it locally with `pnpm exec vp`.
 
+**Local setup with mise.** The committed `mise.toml` pins Node 24 (LTS) and pnpm, and puts
+`node_modules/.bin` on `PATH` so the workspace's own `vp`, `wrangler` and `drizzle-kit` are used.
+`mise trust && mise install` installs both, then its `postinstall` hook runs `pnpm install` and
+applies local D1 migrations. `mise run dev` starts everything. Root `pnpm dev` applies pending local
+migrations before `vp dev`, so it works without mise too. Other tasks: `check`, `test`, `build`,
+`ready`, `db:generate`, `db:migrate` and `db:reset` (wipes `.wrangler/state/v3/d1`). Keep the Node
+major in sync with `.node-version`, which CI reads, and pnpm with `devEngines.packageManager`.
+
 | Command         | What it does here                                                                                                                                             |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `vp install`    | Installs with pnpm (version from `devEngines.packageManager` in the root `package.json`)                                                                      |

@@ -51,10 +51,11 @@ Merged on `main`:
 - #6 `POST /posts` (squash-merged as `1573a94`): `createPost()`, `serializePost()`, `PostRow`.
 - #7 `GET` and `DELETE /posts/:id` (squash-merged as `1aade79`): `findPost()`, `deletePost()`,
   `parseId()`, `publicCache()`.
+- #8 `GET /feed` and the `latest` snapshot (squash-merged as `012c78a`): `rebuildLatest()`,
+  `readLatest()`, `latestPage()`, `EDGE_TTL_S`, and `private, no-store` on everything behind a key.
 
-Open: the Slice 4 PR #8 `feat(api): add GET /feed and the latest snapshot` (branch `feat/feed`, from
-`1aade79`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see
-Next Slice).
+Open: none. Slice 4.1 (`feat/cache`) branches from `012c78a`. Check with `git fetch origin && git log
+origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -340,7 +341,7 @@ Findings:
 
 ### 2026-10-11, Slice 4 session (`latest` snapshot and `GET /feed`)
 
-Done on branch `feat/feed`, branched from `main` at `1aade79` (PR #7 was merged). Not merged yet.
+Done on branch `feat/feed`, branched from `main` at `1aade79` (PR #7 was merged). Merged as `012c78a` (PR #8).
 
 - Design: `rebuildLatest(db)` (`db/snapshots.ts`) is **one statement**, `INSERT INTO snapshots ... SELECT
   json_group_array(json_object(...)) FROM (<newest 100 visible posts>) WHERE true ON CONFLICT (name) DO
@@ -593,7 +594,7 @@ Status: `[x]` Done and verified. Merged as `1aade79` (PR #7). See Working Notes
 
 ### Slice 4: `latest` snapshot and `GET /feed`
 
-Status: `[x]` Done and verified on `feat/feed` (PR #8, not merged yet). See Working Notes 2026-10-11,
+Status: `[x]` Done and verified. Merged as `012c78a` (PR #8). See Working Notes 2026-10-11,
 Slice 4 session. Differences from the sketch below: the snapshot stores rows without `url` (serialized
 at read time), the rebuild is one `INSERT ... SELECT json_group_array(...)` statement, `before` pages
 ignore `limit`, bad params are `400` (never clamped), and a missing snapshot row falls back to a live read.
@@ -727,9 +728,9 @@ point you at this file.
 
 Start here:
 
-1. `git fetch origin`. If the Slice 4 PR (`feat/feed`) is merged: `git switch main && git pull`, then
-   `git switch -c feat/cache`. If it is not merged and the user wants to continue anyway, branch from
-   `feat/feed`. Don't use the `gh` API heavily if it is rate limited; `git` over SSH is unaffected.
+1. `git fetch origin && git switch main && git pull`, then `git switch -c feat/cache`. Slice 4 is merged
+   as `012c78a` (PR #8). Don't use the `gh` API heavily if it is rate limited; `git` over SSH is
+   unaffected.
 2. Read `AGENTS.md`, then ARCHITECTURE §10.1 to §10.3 and §7.2, then `api.ts` (`/feed`, `refreshLatest()`
    and the two `TODO(§10.2)` lines), `http.ts` (`readQuery()`, `publicCache()`) and `packages/shared`
    (`EDGE_TTL_S`). Follow the Slice 4.1 section above.

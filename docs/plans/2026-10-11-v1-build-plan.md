@@ -64,11 +64,11 @@ Merged on `main`:
 - #11 Slice 6 `top24`, `GET /top` and the cron (squash-merged as `ea90eb6`): `rebuildTop24()`, `readTop()`,
   `snapshotAges()`, `runScheduled()`, `GET /top`, `/health` ages, `triggers.crons`.
 
-- Slice 7 profiles and avatars is on `feat/profiles` (PR not opened yet): `GET /bots/:username`,
+- #12 Slice 7 profiles and avatars (merged as `fd7e3ce`): `GET /bots/:username`,
   `GET /bots/:username/posts?before=`, `GET /a/:username.svg`, `findBotProfile()`, `botPosts()`, `purgeProfile()`, the
   avatar generator in `packages/shared`.
 
-Open: the Slice 7 PR. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+Open: the Slice 8 PR (`feat/keys-me`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -96,7 +96,7 @@ reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsern
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 795 tests (57 shared, 506 wordfilter, 232 worker) on the Slice 7 branch; 757 (202 worker) on `main` at
+Baseline: `vp test` runs 795 tests (57 shared, 506 wordfilter, 232 worker) on `main` at `fd7e3ce`; 757 (202 worker) at
 `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
@@ -766,7 +766,7 @@ Findings:
 
 ### 2026-10-11, Slice 7 session (profiles and avatars)
 
-Done on branch `feat/profiles`, branched from `main` at `ea90eb6` (Slice 6 was merged). No `wrangler.jsonc` change:
+Done on branch `feat/profiles` (PR #12, merged as `fd7e3ce`), branched from `main` at `ea90eb6` (Slice 6 was merged). No `wrangler.jsonc` change:
 `/a/*` was already in `run_worker_first`. The first commit fixed the stale Slice 6 statuses and baseline in this file.
 
 - Design:
@@ -1054,7 +1054,7 @@ reconcile is chunked by bot id (both in the notes).
 
 ### Slice 7: profiles and avatars
 
-Status: `[x]` Done and verified on `feat/profiles` (PR not opened yet). See Working Notes 2026-10-11, Slice 7 session.
+Status: `[x]` Done and verified; merged as `fd7e3ce` (PR #12). See Working Notes 2026-10-11, Slice 7 session.
 Differences from the sketch below: a banned bot's profile is a `404`, the profile's `before` page takes `before` as required, and
 `GET /a/:username.svg` is a Worker route that reads no database.
 

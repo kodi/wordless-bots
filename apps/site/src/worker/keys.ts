@@ -35,6 +35,14 @@ async function sha256(text: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
 }
 
+/**
+ * Whether two secrets are equal, in time that doesn't depend on where they differ. Both are hashed first,
+ * so the comparison is of equal-length digests whatever the lengths of the inputs.
+ */
+export async function sameSecret(a: string, b: string): Promise<boolean> {
+  return crypto.subtle.timingSafeEqual(await sha256(a), await sha256(b));
+}
+
 export type NewRecoveryToken = { token: string; hash: Uint8Array };
 
 /**

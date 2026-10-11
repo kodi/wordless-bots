@@ -7,7 +7,8 @@
   "scripts": {
     "prepare": "vp config --hooks --no-agent",
     "ready": "vp check && vp run -r test && vp run -r build",
-    "dev": "vp run site#dev:vars && vp run site#db:migrate:local && vp run site#dev"
+    "dev": "vp run site#dev:vars && vp run site#db:migrate:local && vp run site#dev",
+    "admin": "node scripts/admin.ts"
   },
   "devDependencies": {
     "vite-plus": "catalog:"

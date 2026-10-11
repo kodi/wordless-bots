@@ -71,7 +71,7 @@ reaction limits), `parseId()` (canonical row id from a URL segment) and `publicC
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed limits and `EDGE_TTL_S`, the
 edge TTL of each public route.
 
-Baseline: `vp test` runs 686 tests (49 shared, 506 wordfilter, 131 worker) on the Slice 4 branch.
+Baseline: `vp test` runs 687 tests (49 shared, 506 wordfilter, 132 worker) on the Slice 4 branch.
 On `main` at `1aade79` (before Slice 4) it is 635.
 
 Not built yet: top, reactions, profiles, key rotation, `PATCH /me`, recovery, email, admin, form
@@ -258,7 +258,7 @@ Findings:
   tracing a passing test.
 - Not changed, but noticed: §10.1 says authed responses carry `Cache-Control: private, no-store`.
   Neither `/me` nor `POST /posts` sets it (requests with `Authorization` aren't stored by shared
-  caches anyway). Worth a one-line fix in `requireBot` some time; ask first.
+  caches anyway). Worth a one-line fix in `requireBot` some time; ask first. (Done in Slice 4, PR #8.)
 - Not touched, as instructed: `wrangler.jsonc`, tests-in-CI (Slice A), burst limits (Slice 1.1).
 
 ### 2026-10-11, Slice 3 session (`GET` and `DELETE /posts/:id`)
@@ -330,7 +330,7 @@ Findings:
   with Slice 11 if admin gets a per-post hide.
 - Not changed, as instructed: the missing `Cache-Control: private, no-store` on authed responses (`/me`,
   `POST /posts`, `DELETE /posts/:id`; ask the user first), `wrangler.jsonc`, tests-in-CI (Slice A), burst
-  limits (Slice 1.1).
+  limits (Slice 1.1). (The header was added in Slice 4, PR #8, once the user approved.)
 
 ### 2026-10-11, decision after PR #7: public ids
 
@@ -377,18 +377,21 @@ Done on branch `feat/feed`, branched from `main` at `1aade79` (PR #7 was merged)
   write or the cron. Both places keep a `TODO(§10.2)` for the cache purge (Slice 4.1).
 - `visiblePosts()` in `db/queries.ts` is the one `PostRow` select with `hidden = 0`; `findPost()`,
   `olderPosts()` and the snapshot all start from it.
-- Tests (51 new): `feed-page.test.ts` (the pure gap and `more` matrix), `feed.test.ts` (fresh DB, no
+- Tests (52 new): `feed-page.test.ts` (the pure gap and `more` matrix), `feed.test.ts` (fresh DB, no
   snapshot row, snapshot-vs-live, post shape, origin, a 190-post walk through the snapshot-to-table seam
   at three limits, `before` boundaries, `since`, gap filling, limits, 15 bad queries, cache headers),
   `snapshot.test.ts` (rebuild contents and order, replace, empty, the late-answer race, and the
-  create and delete wiring through `vi.waitFor`).
+  create and delete wiring through `vi.waitFor`); `auth.test.ts` has one more test: every response behind a
+  key (200, 201, 204, a handler's 429, the middleware's 401 and 403) is `private, no-store`.
+- `requireBot` (`auth.ts`) sets `Cache-Control: private, no-store` before it checks the key (added after the
+  user approved it on 2026-10-11, in the same PR). `POST /register` already set it itself.
 
 Verified (all run from the repo root):
 
 - `vp check`: clean (47 files linted and type-checked, 67 formatted).
-- `vp test`: 21 files, **686 passed** (635 baseline + 51 new). The full suite passed 5 runs in a row, and
+- `vp test`: 21 files, **687 passed** (635 baseline + 52 new). The full suite passed 5 runs in a row, and
   `vp test apps/site/test/snapshot apps/site/test/feed` (51 tests) passed 15 runs in a row.
-- `vp run -r build`: passed (Worker 96.08 kB gzip, up from 91.81; SPA 94.96 kB gzip).
+- `vp run -r build`: passed (Worker 96.13 kB gzip, up from 91.81; SPA 94.96 kB gzip).
 - Mutation checks, each reverted with `git checkout` afterwards (tests: `apps/site/test/feed` and
   `apps/site/test/snapshot`, plus `post-read` for the hidden filter):
   - `since`: `>` to `>=`: 4 fail. `before`: `<` to `<=`: 5 fail (the walks and the boundary test).
@@ -405,6 +408,8 @@ Verified (all run from the repo root):
   - No snapshot row answers empty instead of reading live: 1 fail. Cursor not echoing `since`: 2 fail.
   - `olderPosts`: `more` as `>=` instead of `>` **survived** until I added "a before page links on only
     when older posts remain beyond it"; now 1 fails. Reading `size` instead of `size + 1` rows: 3 fail.
+  - Auth header (`auth.test.ts`, 1 test each): the line removed, moved below the key check (so the 401 and
+    403 lack it), or weakened to `no-store`: 1 fails each.
   - Head `more` ignoring a full snapshot: 2 fail. `ON CONFLICT` updating only `updated_at`: 4 fail.
     Snapshot of 50 instead of 100: 4 fail.
   - Stale write: a read-then-write rebuild **passed my first concurrency test 10 of 10 runs** (12 tasks,
@@ -438,8 +443,8 @@ Findings:
   variables, and `insertPosts()` inserts 12 rows per statement (72 variables).
 - A 400 on `limit` over 100 (rather than clamping) means a bot that asks for 200 gets an error naming the
   bound. If that proves too strict in practice, it is one line in `intParam()`.
-- Not changed, as instructed: `wrangler.jsonc`, the missing `Cache-Control: private, no-store` on authed
-  responses (Open Question 7), tests-in-CI (Slice A), burst limits (Slice 1.1), the cache layers (Slice 4.1).
+- Not changed, as instructed: `wrangler.jsonc`, tests-in-CI (Slice A), burst limits (Slice 1.1), the cache
+  layers (Slice 4.1).
 
 ## Open Questions
 
@@ -458,8 +463,9 @@ Ask the user rather than assuming:
 6. ~~What `cursor` is when the feed is empty.~~ Resolved in Slice 4: it echoes the caller's `since`, or
    `0` with none (ARCHITECTURE §8.1).
 7. **`Cache-Control: private, no-store` on authed responses** (`/me`, `POST /posts`, `DELETE /posts/:id`;
-   §10.1 says they carry it, the code doesn't). Asked in the Slice 3 and Slice 4 sessions, no answer yet.
-   Don't add it unasked; ask again. It is a one-line change in `requireBot`.
+   §10.1 says they carry it, the code didn't). Resolved in Slice 4 (PR #8): the user approved, and
+   `requireBot` now sets it first, so `/me`, `/validate`, `POST /posts`, `DELETE /posts/:id` and the
+   401/403 the middleware answers carry it.
 
 ## Slices
 
@@ -727,12 +733,11 @@ Start here:
 2. Read `AGENTS.md`, then ARCHITECTURE §10.1 to §10.3 and §7.2, then `api.ts` (`/feed`, `refreshLatest()`
    and the two `TODO(§10.2)` lines), `http.ts` (`readQuery()`, `publicCache()`) and `packages/shared`
    (`EDGE_TTL_S`). Follow the Slice 4.1 section above.
-3. `vp test` should report 686 passing before you change anything.
+3. `vp test` should report 687 passing before you change anything.
    For a live server, a `mise run dev` one may already be running on :5173 (it was in Slice 4): reuse it,
    it reloads on changes. Otherwise run `cd apps/site && vp dev --port 5174 --strictPort`: `vp dev` at the
    repo root serves no Worker. Never kill a server you didn't start.
-4. Ask the user before touching `wrangler.jsonc` bindings. Ask again about Open Question 7 (`private,
-   no-store` on authed responses); don't add it unasked.
+4. Ask the user before touching `wrangler.jsonc` bindings.
 5. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this
    file's Slice 4.1 is `[x]` with the exact commands under Working Notes, and `Next Slice` points at
    Slice 5.

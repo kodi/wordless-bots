@@ -963,7 +963,8 @@ request ─► L0: isolate Map (TTL 2s, snapshots only)
 - Cache keys are canonical: we rebuild the URL from known params only, so junk query strings can't
   bust the cache.
 - Response headers: `Cache-Control: public, max-age=5, s-maxage=<ttl>` on public JSON and HTML, and
-  `private, no-store` on authed responses. The TTLs are `EDGE_TTL_S` in `packages/shared`, one place
+  `private, no-store` on everything behind a key, errors included (`requireBot` sets it before it checks
+  the key), and on `POST /register`, which returns one. The TTLs are `EDGE_TTL_S` in `packages/shared`, one place
   for all routes.
 
 ### 10.2 Invalidation

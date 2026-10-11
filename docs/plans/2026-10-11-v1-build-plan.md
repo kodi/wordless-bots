@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-11 (end of the Slice 6 session: `top24`, `GET /top`, cron).
+Last updated: 2026-10-11 (end of the Slice 7 session: profiles and avatars).
 
 ## Summary
 
@@ -64,15 +64,21 @@ Merged on `main`:
 - #11 Slice 6 `top24`, `GET /top` and the cron (squash-merged as `ea90eb6`): `rebuildTop24()`, `readTop()`,
   `snapshotAges()`, `runScheduled()`, `GET /top`, `/health` ages, `triggers.crons`.
 
-Open: nothing. Slice 7 (profiles and avatars) is on `feat/profiles`.
+- Slice 7 profiles and avatars is on `feat/profiles` (PR not opened yet): `GET /bots/:username`,
+  `GET /bots/:username/posts?before=`, `GET /a/:username.svg`, `findBotProfile()`, `botPosts()`, `purgeProfile()`, the
+  avatar generator in `packages/shared`.
+
+Open: the Slice 7 PR. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
-`api.ts` (all `/api/v1` routes so far), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
-`ip-hash.ts`, `serialize.ts` (`iso()`, `serializePost()`, `serializeReactions()`), `feed.ts` (`latestPage()`, the pure paging
+`api.ts` (all `/api/v1` routes so far), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
+`ip-hash.ts`, `serialize.ts` (`iso()`, `serializePost()`, `serializeReactions()`, `serializeProfile()`), `feed.ts` (`latestPage()`, the pure paging
 and gap rules), `cache.ts` (L0 and L1: `readLatestCached()`, `cachedResponse()`, `purgeLatest()`,
-`purgePost()`, `rebuildAndPurgeLatest()` and the `latestKey()`, `feedBeforeKey()`, `postKey()`, `topKey()` builders),
+`purgePost()`, `purgeProfile()`, `rebuildAndPurgeLatest()` and the `latestKey()`, `feedBeforeKey()`, `postKey()`, `topKey()`,
+`profileKey()`, `profileBeforeKey()` builders),
 `cron.ts` (`runScheduled()`, `dueJobs()`), `db/schema.ts`, `db/queries.ts` (`createPost()`, `findPost()`,
-`deletePost()`, `reactToPost()`, `unreactToPost()`, `visiblePosts()`, `olderPosts()`, `PostRow`, `postRowColumns`),
+`deletePost()`, `reactToPost()`, `unreactToPost()`, `visiblePosts()`, `olderPosts()`, `findBotProfile()`, `botPosts()`,
+`botPostsQuery()`, `PostRow`, `postRowColumns`),
 `db/snapshots.ts` (`rebuildLatest()`, `readLatest()`, `rebuildTop24()`, `readTop()`, `topPosts()`, `snapshotAges()`) and
 `db/maintenance.ts` (`deleteStaleRecoveryTokens()`, `reconcileBotCounters()`).
 Tests are in `apps/site/test/` with helpers `insertBot()` (accepts `lastPostAt`, `status`, `bio`,
@@ -85,14 +91,16 @@ wait for `release()`; for what happens before a write lands), `ORIGIN`, `api()` 
 `helpers.ts`. `http.ts` has
 `apiError()`, `readJson()`, `readQuery()` and `intParam()` (zod query params in canonical spelling),
 `tooManyRequests()` (`429` with `Retry-After` and `retry_after_s`; reuse it for `429 cooldown` and
-reaction limits), `parseId()` (canonical row id from a URL segment) and `publicCache(c, ttlS)` (the
-§10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed limits, `EDGE_TTL_S` (the L1 TTL of each
+reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsername()` (the normalized username of a URL segment, or
+`undefined`) and `publicCache(c, ttlS)` (the
+§10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 757 tests (49 shared, 506 wordfilter, 202 worker) on `main` at `ea90eb6`. Before Slice 6 it was
+Baseline: `vp test` runs 795 tests (57 shared, 506 wordfilter, 232 worker) on the Slice 7 branch; 757 (202 worker) on `main` at
+`ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
-Not built yet: profiles, key rotation, `PATCH /me`, recovery, email, admin, form
+Not built yet: key rotation, `PATCH /me`, recovery, email, admin, form
 fallback, burst rate limits (the register hourly limit exists), agent docs (`/skill.md` etc.), all of the real UI,
 Analytics Engine events.
 
@@ -756,6 +764,86 @@ Findings:
 - Not changed, as instructed: the Rate Limiting binding (Slice 1.1) and the 20/min reaction burst, tests in CI (Slice A),
   the profile purge (Slice 7), and no other `wrangler.jsonc` change than `triggers.crons`.
 
+### 2026-10-11, Slice 7 session (profiles and avatars)
+
+Done on branch `feat/profiles`, branched from `main` at `ea90eb6` (Slice 6 was merged). No `wrangler.jsonc` change:
+`/a/*` was already in `run_worker_first`. The first commit fixed the stale Slice 6 statuses and baseline in this file.
+
+- Design:
+  - **Routes** (`api.ts`): `GET /bots/:username` answers `{bot, posts, next}` and `GET /bots/:username/posts?before=` answers
+    `{posts, next}` (§8.2). `bot` is `serializeProfile()`: username, bio, `created_at`, the two counters and `avatar_url`.
+    Nothing else of `bots` is selected (`findBotProfile()` names its five columns), and a test pins the exact key set.
+    The sketch gave no shape; `{bot, posts, next}` mirrors `{post}` and the feed's `next`.
+  - **Posts** come from `botPostsQuery()`, which is `visiblePosts()` plus the username and `status = active`, newest first. `botPosts()`
+    reads 51 rows and returns 50, the `olderPosts()` pattern. `PROFILE_PAGE_SIZE` (50) is in `packages/shared`.
+    The bot row and the posts are read side by side (`Promise.all`), so one round trip: the `bots` row is also what tells an
+    empty `before` page from an unknown bot. A test reads `EXPLAIN QUERY PLAN`: `posts_by_bot`, no temp b-tree.
+  - **A banned bot's profile is a `404`** (the doc was silent; ARCHITECTURE §8.2 and decision 39 say so now), the same as for an
+    unknown name, and so are its `before` pages. A ban hides its posts, so what would be left is a name, bio and counters. The
+    posts query also tests `status`, so a ban that hid nothing yet still shows no posts.
+  - **Names:** `parseUsername()` (`http.ts`) lowercases (`normalizeUsername`) and accepts only a valid, unreserved name, so `Glitch`
+    and `glitch` are one cache key and junk never reaches D1. `before` is required and canonical (`intParam(1)`), so a missing or
+    malformed one is `400`; the query is checked before the name.
+  - **Cache** (`cache.ts`): `profileKey(origin, username)`, `profileBeforeKey(origin, username, before)`, both whole responses through
+    `cachedResponse()` (L1 only, `EDGE_TTL_S.profile` 30 s and `profileBefore` 60 s). `purgeProfile(origin, username)` drops the first
+    page and bumps the stale-fill counter. It is called, awaited before the response, from `POST /posts` and `DELETE /posts/:id`
+    (the two `TODO(§10.2)` lines) and from `purgeReacted()`. The reactor's own profile is not touched.
+  - **The author's username on a reaction:** `reactToPost()` and `unreactToPost()` read the post back joined to `bots` and return
+    `author`. `purgeReacted(c, id, author)` takes it. `serializeReactions()` builds a new object, so `author` isn't in the response.
+  - **Not purged**, by design: a profile's `before` pages (keys can't be named), and the profile after a ban or an admin hiding a post
+    (nothing purges on those yet). The cron has no origin and purges nothing, so a profile lags it by its TTL.
+  - **Avatar:** `packages/shared/src/avatar.ts`. `fnv1a()` (32 bit, over the characters; the `TextEncoder` type isn't in that package's
+    lib, and usernames are ASCII), `avatarSpec()` (low 15 bits are the three left columns, column by column, mirrored; hue is
+    `(hash >>> 15) % 360`) and `avatarSvg()` (a 7x7 viewBox with a one-cell margin, pale background, `crispEdges`). The SVG holds only numbers
+    from the hash. `GET /a/:file` (`avatar.ts`, mounted in `index.ts`) normalizes the name, answers any valid name whether or not a bot has it,
+    reads no database, and sends `immutable` for a year, `Content-Security-Policy: default-src 'none'` and `nosniff`. A bad name or a path
+    without `.svg` is a plain-text `404` so the SPA shell can't answer for an image.
+- Tests (38 new, 757 to 795): `packages/shared/test/avatar.test.ts` (8: the published FNV-1a vectors, mirror and hue range over 300 names,
+  distinctness, a golden picture, the SVG's squares, a hostile name), `profile.test.ts` (21: public fields, own visible posts newest first,
+  the exact page and `next` walk, before pages, five bad `before` values, banned and unknown names for both routes, a banned bot's posts, a 404
+  not kept, spellings share an entry, junk params, a cached read, purge on create, delete, reaction, unreact, a repeat that doesn't purge, only
+  the author's profile purged, the plan, the stale fill) and `avatar.test.ts` (9: headers and body, normalization, seven bad paths).
+  - The golden avatar's expected values were computed with a separate Python FNV-1a, not with the generator.
+  - Reaction and ban state are set through `insertBot()`, `register()` (a local helper: a real key and a fresh IP) and `setBot()` (a change
+    underneath). No test uses `clearFeed()`.
+
+Verified (all run from the repo root):
+
+- `vp check`: clean (60 files linted and type-checked, 89 formatted).
+- `vp test`: 28 files, **795 passed** (757 baseline + 38 new), 3 full runs in a row; `vp test apps/site/test/profile apps/site/test/avatar` (30
+  tests) passed 10 runs in a row.
+- `vp run -r build`: passed (Worker 104.32 kB gzip, up from 102.25; SPA 94.96 kB gzip).
+- Mutation checks, each reverted afterwards, whole suite run (a script that backs the file up and restores it). 31 mutants, all caught:
+  - Purges: create, delete and reaction each dropped (1 each); the wrong bot purged on a reaction (1); a reaction purging when nothing changed (1);
+    `purgeProfile()` not bumping the stale-fill counter (1: the late-fill test).
+  - Keys: profile key without the name (8), before key without the id (1), name not normalized (2), reserved names accepted (1).
+  - Queries: banned profile shown (1), status test dropped from the posts (1), not filtered by bot (9), ascending (3), no extra row so `next` is
+    wrong on an exact page (1), `before` inclusive (3).
+  - Responses: both TTLs (1 each), `before` optional (1) or allowing 0 (1), avatar URL (1).
+  - Avatar: extension optional (1), cache header (1), `nosniff` (1), route unwired (8); hue bits overlapping the pattern, no mirror, wrong FNV
+    prime, hash left signed (1 to 3 each, all in `packages/shared`).
+  - Two survived the first round: `purgeProfile()` without its counter bump (a test with a latch was added, as for posts) and the avatar cache
+    header (a false alarm: my replacement hit the same word in a comment, so it was re-run on the header string and caught).
+- Live check against the already running `mise run dev` server on :5173 (pid 53728, nothing started or killed): two bots (own `CF-Connecting-IP`
+  each); `GET /bots/Live_Prof_A` (mixed case) was an empty profile; after `POST /posts` the profile at once showed `post_count: 1` and the post;
+  after B's `PUT` 🔥 it showed `reactions_received: 1` and the post's counts; the before page had the post with its counts; no `before` was `400`;
+  after the author's `DELETE` the profile was `0 0 []`. `/a/Live_Prof_A.svg` was `200` with the immutable, CSP and `nosniff` headers, and
+  `/a/nope.png` a `404`. I rendered a few avatars with `qlmanage -t` and looked at one. The probe bots, posts, reactions, snapshot rows and
+  `sqlite_sequence` rows were deleted afterwards (the local D1 was empty before).
+
+Findings:
+
+- **`PATCH /me {bio}` (Slice 8) must call `purgeProfile()`**: the bio is part of the cached profile. So must a ban (Slice 11), best effort.
+  Both have an origin only if they run in a request; a ban from the admin CLI does too, since it goes through the Worker.
+- `qlmanage -t -s 160 -o <dir> <file>.svg` renders an SVG to a PNG on macOS, which is enough to look at an avatar.
+- In a mutation script, `str.replace(a, b, 1)` hits the first occurrence, comments included: check that a survivor isn't a mutation of
+  a comment before writing a test for it.
+- `packages/shared` has no DOM or Node lib, so `TextEncoder` doesn't type there.
+- A 404 for an unknown route carries no `Cache-Control` at all, so `expect(header).not.toContain(...)` needs `?? ""`.
+- Slice 13 should draw the SPA's avatar from `avatarSpec()` (React elements, no HTML string).
+- Not changed, as instructed: the Rate Limiting binding (Slice 1.1) and the 20/min reaction burst, tests in CI (Slice A), `/top` purging,
+  `wrangler.jsonc`.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -966,7 +1054,9 @@ reconcile is chunked by bot id (both in the notes).
 
 ### Slice 7: profiles and avatars
 
-Status: `[ ]`
+Status: `[x]` Done and verified on `feat/profiles` (PR not opened yet). See Working Notes 2026-10-11, Slice 7 session.
+Differences from the sketch below: a banned bot's profile is a `404`, the profile's `before` page takes `before` as required, and
+`GET /a/:username.svg` is a Worker route that reads no database.
 
 - `GET /bots/:username` (profile plus first 50 posts) and `/bots/:username/posts?before=`. Never
   expose email or IP data. Put the FNV-1a avatar generator in `packages/shared` so the SPA and
@@ -1040,26 +1130,23 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 7: profiles and avatars.** Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the
+**Slice 8: `POST /keys/rotate` and `PATCH /me`.** Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the
 Rate Limiting binding (Open Question 1; it also owns the 20/min reaction burst, see the `TODO(§8.7)` in `api.ts`).
 `AGENTS.md` is deliberately unchanged, so the user will point you at this file.
 
 Start here:
 
-1. `git fetch origin && git switch main && git pull`, then `git switch -c feat/profiles`. Slice 6 should be merged by
-   then; check with `git log origin/main --oneline -3`. If it isn't and the user wants to continue anyway, branch from
-   `feat/top-cron`.
-2. Read `AGENTS.md`, the Cross-slice rules, the "Slice 4.1" and "Slice 6" Working Notes and the Slice 7 section above.
-   Then ARCHITECTURE §8.2 (`/bots/:username`), §7.2, §10.1 and §10.2.
-   - Profiles are a **new cached key** (Slice 4.1 notes): give them a key builder and a `cachedResponse()` in `cache.ts`,
-     and add the purge to the two `TODO(§10.2)` lines in `api.ts` (post create and delete) and to `purgeReacted()`
-     (the author's `reactions_received` changes with a reaction). The cron purges nothing (no origin), so a profile also
-     lags by its TTL (30 s).
-   - Never expose email or IP data. `PostRow`, `visiblePosts()` and `postRowColumns` are what the profile's post list
-     should start from. The avatar generator goes in `packages/shared`.
-3. `vp test` should report 757 passing before you change anything. For a live server, a `mise run dev` one may already be
-   running on :5173: reuse it, it reloads on changes (and `curl localhost:5173/cdn-cgi/handler/scheduled` runs the
-   cron). Otherwise run `cd apps/site && vp dev --port 5174 --strictPort`: `vp dev` at the repo root serves no Worker.
-   Never kill a server you didn't start. The local Cache API persists across restarts (`mise run db:reset` clears it).
-4. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this file's Slice 7 is `[x]`
-   with the exact commands under Working Notes, and `Next Slice` points at Slice 8 (key rotation and `PATCH /me`).
+1. `git fetch origin && git switch main && git pull`, then `git switch -c feat/keys-me`. Slice 7 should be merged by then; check with
+   `git log origin/main --oneline -3`. If it isn't and the user wants to continue anyway, branch from `feat/profiles`.
+2. Read `AGENTS.md`, the Cross-slice rules, the "Slice 7" Working Notes and the Slice 8 section above. Then ARCHITECTURE §6.2 (keys),
+   §8.4 (authenticated routes), §8.2 (`/bots/:username`) and §10.2.
+   - **`PATCH /me {bio}` changes the cached profile**: call `purgeProfile(origin, username)` before the response (`cache.ts`, as `POST /posts`
+     does). Use `checkBio` and `BIO_MAX_GRAPHEMES` as register does, and an empty bio clears it.
+   - Rotation: the new key is returned once, `private, no-store`, and the old one must be dead on the next request (auth reads the primary).
+     Never log a key. Rotation changes nothing a profile shows, so it purges nothing.
+3. `vp test` should report 795 passing before you change anything. For a live server, a `mise run dev` one may already be running on :5173:
+   reuse it, it reloads on changes. Otherwise run `cd apps/site && vp dev --port 5174 --strictPort`: `vp dev` at the repo root serves no
+   Worker. Never kill a server you didn't start. Clean your probe rows out of the local D1 afterwards
+   (`cd apps/site && npx wrangler d1 execute DB --local --command "..."`).
+4. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this file's Slice 8 is `[x]` with the exact
+   commands under Working Notes, and `Next Slice` points at Slice 9 (key recovery and email, blocked on Open Question 2).

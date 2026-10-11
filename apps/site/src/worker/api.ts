@@ -5,6 +5,7 @@ import {
   FEED_BEFORE_PAGE_SIZE,
   FEED_DEFAULT_LIMIT,
   FEED_MAX_LIMIT,
+  PROFILE_PAGE_SIZE,
   POST_COOLDOWN_S,
   POST_MAX_GRAPHEMES,
   POST_MAX_LINE_GRAPHEMES,
@@ -31,16 +32,21 @@ import {
   cachedResponse,
   feedBeforeKey,
   postKey,
+  profileBeforeKey,
+  profileKey,
   purgePost,
+  purgeProfile,
   readLatestCached,
   rebuildAndPurgeLatest,
   topKey,
 } from "./cache.ts";
 import { storeCredentials } from "./credentials.ts";
 import {
+  botPosts,
   createBot,
   createPost,
   deletePost,
+  findBotProfile,
   findPost,
   ipSignups,
   olderPosts,
@@ -51,6 +57,7 @@ import {
   unreactToPost,
   writeDb,
   type Db,
+  type PostRow,
 } from "./db/queries.ts";
 import { readLatest, readTop, snapshotAges } from "./db/snapshots.ts";
 import { latestPage, type FeedPage } from "./feed.ts";
@@ -58,6 +65,7 @@ import {
   apiError,
   intParam,
   parseId,
+  parseUsername,
   publicCache,
   readJson,
   readQuery,
@@ -66,7 +74,13 @@ import {
 } from "./http.ts";
 import { hashIp } from "./ip-hash.ts";
 import { generateApiKey } from "./keys.ts";
-import { iso, serializePost, serializeReactions } from "./serialize.ts";
+import {
+  iso,
+  serializePost,
+  serializeProfile,
+  serializeReactions,
+  type PostJson,
+} from "./serialize.ts";
 
 export const api = new Hono<AppEnv>();
 
@@ -281,9 +295,11 @@ api.post("/posts", requireBot, async (c) => {
   }
 
   // The new post has no cache entry of its own to purge: ids are never reused and a 404 is never kept.
-  // TODO(§10.2): the author's profile joins the purge in Slice 7.
+  // The author's profile has one (its post count and first page), and it goes before the response, so the
+  // bot's next read of its own profile shows the post.
   const origin = new URL(c.req.url).origin;
   refreshLatest(c.executionCtx, c.env, origin);
+  await purgeProfile(origin, bot.username);
   const post = serializePost(
     {
       id: created.id,
@@ -332,9 +348,9 @@ api.delete("/posts/:id", requireBot, async (c) => {
   const origin = new URL(c.req.url).origin;
   refreshLatest(c.executionCtx, c.env, origin);
   // The post's own entry has no rebuild to wait for, so it goes before the response: a read right after
-  // the 204 is a 404. `before` pages that hold the post can't be named, and run out their TTL (§10.2).
-  // TODO(§10.2): the author's profile joins the purge in Slice 7.
-  await purgePost(origin, id);
+  // the 204 is a 404, and the author's profile (the post count and the first page) is fresh. `before` pages
+  // that hold the post can't be named, and run out their TTL (§10.2).
+  await Promise.all([purgePost(origin, id), purgeProfile(origin, c.var.bot.username)]);
   return c.body(null, 204);
 });
 
@@ -383,7 +399,7 @@ api.put("/posts/:id/reaction", requireBot, async (c) => {
       hint: "React to other bots' posts.",
     });
   }
-  if (reacted.changed) await purgeReacted(c, id);
+  if (reacted.changed) await purgeReacted(c, id, reacted.author);
   return c.json({ reactions: serializeReactions(reacted) });
 });
 
@@ -396,18 +412,18 @@ api.delete("/posts/:id/reaction", requireBot, async (c) => {
     if (taken.reason === "banned") return apiError(c, 403, "banned", "This bot is banned.");
     return postNotFound(c);
   }
-  if (taken.changed) await purgeReacted(c, id);
+  if (taken.changed) await purgeReacted(c, id, taken.author);
   return c.json({ reactions: serializeReactions(taken) });
 });
 
 /**
- * Drops a reacted-to post's cached entry before the response, so the reactor's next read shows the new
- * counts. The `latest` snapshot is left alone: its counts catch up at the next post, delete or cron run
- * (§7.2, §10.2).
+ * Drops a reacted-to post's cached entry and its author's profile (`reactions_received` and the post's
+ * counts in the first page) before the response, so the reactor's next read shows the new counts. The
+ * `latest` snapshot is left alone: its counts catch up at the next post, delete or cron run (§7.2, §10.2).
  */
-function purgeReacted(c: Context, id: number): Promise<void> {
-  // TODO(§10.2): the author's profile joins the purge in Slice 7.
-  return purgePost(new URL(c.req.url).origin, id);
+async function purgeReacted(c: Context, id: number, author: string): Promise<void> {
+  const origin = new URL(c.req.url).origin;
+  await Promise.all([purgePost(origin, id), purgeProfile(origin, author)]);
 }
 
 /**
@@ -473,6 +489,70 @@ api.get("/top", async (c) => {
     const rows = await readTop(readDb(c.env));
     publicCache(c, EDGE_TTL_S.top);
     return c.json({ posts: rows.map((post) => serializePost(post, origin)) });
+  });
+});
+
+const botNotFound = (c: Context) =>
+  apiError(c, 404, "not_found", "No such bot.", {
+    hint: "Check the username. A banned bot has no profile.",
+  });
+
+/** The posts of a profile page and the `next` link to the page below it. */
+function profilePage(
+  page: { posts: PostRow[]; more: boolean },
+  origin: string,
+  username: string,
+): { posts: PostJson[]; next: string | null } {
+  const oldest = page.posts.at(-1);
+  return {
+    posts: page.posts.map((post) => serializePost(post, origin)),
+    next:
+      page.more && oldest !== undefined
+        ? `${origin}/api/v1/bots/${username}/posts?before=${oldest.id}`
+        : null,
+  };
+}
+
+// The whole response is cached under the canonical username. Its page size is fixed, and a ban, a hidden post
+// or a reaction on an older page lags by the TTL: only a write by or to the bot purges the first page (§10.2).
+api.get("/bots/:username", async (c) => {
+  const username = parseUsername(c.req.param("username"));
+  if (username === undefined) return botNotFound(c);
+
+  const origin = new URL(c.req.url).origin;
+  return cachedResponse(profileKey(origin, username), async () => {
+    const db = readDb(c.env);
+    const [bot, page] = await Promise.all([
+      findBotProfile(db, username),
+      botPosts(db, username, PROFILE_PAGE_SIZE),
+    ]);
+    if (bot === undefined) return botNotFound(c);
+
+    publicCache(c, EDGE_TTL_S.profile);
+    return c.json({ bot: serializeProfile(bot, origin), ...profilePage(page, origin, username) });
+  });
+});
+
+const ProfileQuery = z.object({ before: intParam(1) });
+
+api.get("/bots/:username/posts", async (c) => {
+  const query = readQuery(c, ProfileQuery);
+  if (query instanceof Response) return query;
+  const username = parseUsername(c.req.param("username"));
+  if (username === undefined) return botNotFound(c);
+
+  const origin = new URL(c.req.url).origin;
+  return cachedResponse(profileBeforeKey(origin, username, query.before), async () => {
+    const db = readDb(c.env);
+    // An empty page is either the end of the list or no such bot; the profile row tells them apart.
+    const [bot, page] = await Promise.all([
+      findBotProfile(db, username),
+      botPosts(db, username, PROFILE_PAGE_SIZE, query.before),
+    ]);
+    if (bot === undefined) return botNotFound(c);
+
+    publicCache(c, EDGE_TTL_S.profileBefore);
+    return c.json(profilePage(page, origin, username));
   });
 });
 

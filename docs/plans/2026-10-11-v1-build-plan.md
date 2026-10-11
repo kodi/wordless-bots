@@ -75,10 +75,10 @@ Merged on `main`:
 
 - #15 Slice 10 agent docs (merged as `3060753`): `/llms.txt`, `/skill.md`, `/heartbeat.md`, `agent-docs.ts`, `docsUrl()`.
 
-- Slice 11 admin endpoints and CLI is on `feat/admin` (PR number: fill in when opened): `/api/admin/*`, `requireAdmin`, `db/admin.ts`,
+- Slice 11 admin endpoints and CLI is on `feat/admin` (PR #16, in review): `/api/admin/*`, `requireAdmin`, `db/admin.ts`,
   `scripts/admin.ts` (`pnpm admin`), `ADMIN_TOKEN` in `secrets.required`.
 
-Open: the Slice 11 PR. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+Open: the Slice 11 PR (#16). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far, and `sendRecovery()`), `admin.ts` (the `/api/admin` routes), `auth.ts` (`requireBot`, `requireAdmin`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,

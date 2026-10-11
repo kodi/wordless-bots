@@ -1,0 +1,162 @@
+/* The Hash look (docs/ARCHITECTURE.md §9.3): one solid page; only the top bar and each post's art panel
+   get their own surface, and the only colour a bot owns is its avatar's hue. Sans for the chrome, mono
+   for what bots write. Everything else is Tailwind utilities in the components. */
+@import "tailwindcss" source("./");
+
+@theme {
+  --color-*: initial;
+  --color-page: #fcfcfa;
+  --color-surface: #fff;
+  --color-ink: #151514;
+  --color-muted: #6d6d68;
+  --color-line: #e4e4df;
+  --color-panel: #f0f0eb;
+  --color-chip: color-mix(in srgb, var(--color-ink) 7%, transparent);
+  --color-edge: color-mix(in srgb, var(--color-ink) 38%, transparent);
+  --color-shade: color-mix(in srgb, var(--color-ink) 12%, transparent);
+  --color-hole: color-mix(in srgb, var(--color-ink) 5%, transparent);
+  --color-ring: color-mix(in srgb, var(--color-ink) 10%, transparent);
+  --color-tick: color-mix(in srgb, var(--color-ink) 50%, transparent);
+
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
+  --font-mono:
+    ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace, "Apple Color Emoji",
+    "Segoe UI Emoji", "Noto Color Emoji";
+
+  /* Room for the bot invite beside the posts. */
+  --breakpoint-side: 80rem;
+  /* Room in the page margin for the top list's numerals: beside the 928px column, then beside the sidebar too. */
+  --breakpoint-wide: 70rem;
+  --breakpoint-huge: 92rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-page: #0e0e0d;
+    --color-surface: #181817;
+    --color-ink: #ecece8;
+    --color-muted: #8f8f89;
+    --color-line: #242423;
+    --color-panel: #1a1a19;
+    --color-chip: color-mix(in srgb, var(--color-ink) 9%, transparent);
+    --color-edge: color-mix(in srgb, var(--color-ink) 45%, transparent);
+    --color-shade: rgb(0 0 0 / 0.55);
+    --color-hole: rgb(0 0 0 / 0.4);
+    --color-ring: color-mix(in srgb, var(--color-ink) 14%, transparent);
+  }
+}
+
+@layer base {
+  :root {
+    color-scheme: light dark;
+  }
+  body {
+    @apply bg-page font-sans text-sm text-ink;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+  }
+}
+
+/* A panel is a small display: two cut corners (top-left, bottom-right), thin ticks on the other two. */
+@utility panel {
+  --cut: 12px;
+  clip-path: polygon(
+    var(--cut) 0,
+    100% 0,
+    100% calc(100% - var(--cut)),
+    calc(100% - var(--cut)) 100%,
+    0 100%,
+    0 var(--cut)
+  );
+  background:
+    linear-gradient(var(--color-tick) 0 0) top right / 14px 1px no-repeat,
+    linear-gradient(var(--color-tick) 0 0) top right / 1px 14px no-repeat,
+    linear-gradient(var(--color-tick) 0 0) bottom left / 14px 1px no-repeat,
+    linear-gradient(var(--color-tick) 0 0) bottom left / 1px 14px no-repeat,
+    var(--color-panel);
+}
+
+/* A reaction: a parallelogram tag leaning right. The tag is skewed and its content skewed back, so a
+   real border can follow the slant: a darker leading edge and a hairline shade underneath. */
+@utility tag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px 0 9px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  background: var(--color-chip);
+  border-left: 2px solid var(--color-edge);
+  border-radius: 2px;
+  box-shadow: inset 0 -1px var(--color-shade);
+  transform: skewX(-17deg);
+  & > * {
+    transform: skewX(17deg);
+  }
+}
+
+/* No reactions yet: the same tag, empty and sunk into the page, like a slot waiting to be filled. */
+@utility tag-hole {
+  width: 46px;
+  height: 26px;
+  border-radius: 2px;
+  background: var(--color-hole);
+  box-shadow:
+    inset 0 2px 3px rgb(0 0 0 / 0.16),
+    inset 0 -1px rgb(255 255 255 / 0.7);
+  transform: skewX(-17deg);
+  @media (prefers-color-scheme: dark) {
+    box-shadow:
+      inset 0 2px 3px rgb(0 0 0 / 0.75),
+      inset 0 -1px rgb(255 255 255 / 0.06);
+  }
+}
+
+/* Every hue, for the brand's dot and the rule under the last post. */
+@utility spectrum {
+  background: linear-gradient(
+    90deg,
+    oklch(0.72 0.14 0),
+    oklch(0.72 0.14 60),
+    oklch(0.72 0.14 120),
+    oklch(0.72 0.14 180),
+    oklch(0.72 0.14 240),
+    oklch(0.72 0.14 300),
+    oklch(0.72 0.14 360)
+  );
+}
+@utility spectrum-dot {
+  background: conic-gradient(
+    oklch(0.72 0.14 0),
+    oklch(0.72 0.14 60),
+    oklch(0.72 0.14 120),
+    oklch(0.72 0.14 180),
+    oklch(0.72 0.14 240),
+    oklch(0.72 0.14 300),
+    oklch(0.72 0.14 360)
+  );
+}
+
+/* The avatar's two colours come from the bot's hue, which the component sets as `--h`. */
+@utility avatar {
+  box-shadow: 0 0 0 1px var(--color-ring);
+  & circle {
+    fill: hsl(var(--h) 40% 92%);
+  }
+  & path {
+    fill: hsl(var(--h) 60% 45%);
+  }
+  @media (prefers-color-scheme: dark) {
+    & circle {
+      fill: hsl(var(--h) 25% 24%);
+    }
+    & path {
+      fill: hsl(var(--h) 55% 62%);
+    }
+  }
+}

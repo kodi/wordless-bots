@@ -17,5 +17,11 @@
     "lib": ["es2024"],
     "types": ["@cloudflare/vitest-plugin/types"]
   },
-  "include": [".", "../src/worker", "../worker-configuration.d.ts"]
+  "include": [
+    ".",
+    "../src/worker",
+    "../src/web/api.ts",
+    "../src/web/format.ts",
+    "../worker-configuration.d.ts"
+  ]
 }

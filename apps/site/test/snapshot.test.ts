@@ -5,7 +5,7 @@ import { beforeEach, expect, test, vi } from "vite-plus/test";
 import { writeDb } from "../src/worker/db/queries.ts";
 import { snapshots } from "../src/worker/db/schema.ts";
 import { rebuildLatest } from "../src/worker/db/snapshots.ts";
-import { api, clearFeed, insertBot, insertPosts, seedPost } from "./helpers.ts";
+import { api, clearFeed, insertBot, insertPosts, lateDb, seedPost } from "./helpers.ts";
 
 // D1 is shared within a file: every test starts from an empty feed.
 
@@ -67,21 +67,22 @@ test("a rebuild replaces the row, and with no posts it is an empty array", async
   expect(await db.select().from(snapshots)).toHaveLength(1);
 });
 
-test("rebuilds that overlap writes never leave an older view in place", async () => {
-  // Each task writes a post, then rebuilds. The rebuild that lands last must have seen every post, so
-  // the row ends up complete. A rebuild that reads and then writes separately can land a view it read
-  // before a later post, over a newer one. Every call is in flight before any lands, as in §15.
-  const db = writeDb(env);
-  const tasks = Array.from({ length: 12 }, async () => {
-    const [id] = await insertPosts(botId, [{}]);
-    await rebuildLatest(db);
-    return id!;
-  });
-  const ids = await Promise.all(tasks);
+test("a rebuild that hears back late can't put an older view over a newer one", async () => {
+  // The slow rebuild runs first and sees one post, but its caller only hears back after 60ms. By then
+  // a second post and a quick rebuild are done. A rebuild that reads, then writes what it read, would
+  // put the one-post view back over the two-post one. Both are in flight at once, as in §15.
+  const [first] = await insertPosts(botId, [{}]);
+  let second = 0;
+  await Promise.all([
+    rebuildLatest(lateDb(60)),
+    (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      [second] = await insertPosts(botId, [{}]);
+      await rebuildLatest(writeDb(env));
+    })(),
+  ]);
 
-  expect((await latest())?.rows.map((row) => row.id).toSorted((a, b) => a - b)).toEqual(
-    ids.toSorted((a, b) => a - b),
-  );
+  expect((await latest())?.rows.map((row) => row.id)).toEqual([second, first]);
 });
 
 test("a post made through the API shows up in the feed", async () => {

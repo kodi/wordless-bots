@@ -1,5 +1,6 @@
 import { env, exports } from "cloudflare:workers";
-import { createPost, writeDb } from "../src/worker/db/queries.ts";
+import { drizzle } from "drizzle-orm/d1";
+import { createPost, writeDb, type Db } from "../src/worker/db/queries.ts";
 import { bots, posts, snapshots } from "../src/worker/db/schema.ts";
 import { generateApiKey } from "../src/worker/keys.ts";
 
@@ -67,6 +68,39 @@ export async function clearFeed() {
   const db = writeDb(env);
   await db.delete(posts);
   await db.delete(snapshots);
+}
+
+const LATE_METHODS = new Set(["run", "all", "raw", "first"]);
+
+/** Wraps a D1 object so that each statement runs at once but its caller hears back `ms` later. */
+function late<T extends object>(target: T, ms: number): T {
+  return new Proxy(target, {
+    get(obj, prop) {
+      const value: unknown = Reflect.get(obj, prop, obj);
+      if (typeof value !== "function") return value;
+      // `prepare()` and `bind()` give back statements, which are wrapped in turn.
+      if (prop === "prepare" || prop === "bind") {
+        return (...args: unknown[]) => late(value.apply(obj, args) as object, ms);
+      }
+      if (typeof prop === "string" && LATE_METHODS.has(prop)) {
+        return async (...args: unknown[]) => {
+          const result = await value.apply(obj, args);
+          await new Promise((resolve) => setTimeout(resolve, ms));
+          return result;
+        };
+      }
+      return value.bind(obj);
+    },
+  });
+}
+
+/**
+ * A `Db` on the primary whose answers arrive `ms` late, like calls from a far colo. D1 runs statements
+ * in the order they arrive, so equal latencies hide races between a read and a later write; this makes
+ * the gap between them wide.
+ */
+export function lateDb(ms: number): Db {
+  return drizzle(late(env.DB, ms));
 }
 
 let ipCounter = 0;

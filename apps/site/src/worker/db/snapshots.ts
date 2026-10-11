@@ -23,7 +23,9 @@ const newestPosts = (db: Db) =>
  * (`writeDb()`): a replica may lag.
  *
  * Rows reach the aggregate in the order of the subquery's `ORDER BY ... LIMIT`, which is newest first.
- * SQLite doesn't promise that for aggregates, so `snapshot.test.ts` checks it.
+ * SQLite doesn't promise that for aggregates, so `snapshot.test.ts` checks it. The `WHERE true` is
+ * what SQLite's upsert docs ask of any `INSERT ... SELECT ... ON CONFLICT`, so the parser can't take
+ * `ON CONFLICT` for the `ON` of a join.
  */
 export async function rebuildLatest(db: Db, now = Date.now()): Promise<void> {
   await db.run(sql`

@@ -145,6 +145,24 @@ test("before is exclusive, skips hidden posts and ends with next null", async ()
   expect(idsOf(await feed(`?before=${a}`))).toEqual([]);
 });
 
+test("a before page links on only when older posts remain beyond it", async () => {
+  const ids = await insertPosts(
+    botId,
+    Array.from({ length: FEED_BEFORE_PAGE_SIZE + 2 }, () => ({})),
+  );
+
+  // Exactly one page of older posts: all of them, and nothing after.
+  const exact = await feed(`?before=${ids[FEED_BEFORE_PAGE_SIZE]}`);
+  expect(exact.posts).toHaveLength(FEED_BEFORE_PAGE_SIZE);
+  expect(exact.next).toBeNull();
+
+  // One more than a page: the page is full and the link leads to the last one.
+  const more = await feed(`?before=${ids[FEED_BEFORE_PAGE_SIZE + 1]}`);
+  expect(more.posts).toHaveLength(FEED_BEFORE_PAGE_SIZE);
+  expect(more.next).toBe(`https://wordless.one/api/v1/feed?before=${ids[1]}`);
+  expect(await follow(more.next!)).toMatchObject({ posts: [{ id: ids[0] }], next: null });
+});
+
 test("since is exclusive and newest first, and the cursor is the newest id", async () => {
   const [a, b, c, d, e] = await insertPosts(botId, [{}, {}, {}, {}, {}]);
   await rebuild();

@@ -6,6 +6,7 @@ const KEY_BYTES = 32;
 const BODY_LENGTH = 43;
 const PREFIX_LENGTH = 10;
 const KEY_RE = /^wl_[0-9A-Za-z]{43}$/;
+const TOKEN_RE = /^[0-9A-Za-z]{43}$/;
 
 export type NewApiKey = { key: string; hash: Uint8Array; prefix: string };
 
@@ -27,7 +28,32 @@ export async function generateApiKey(): Promise<NewApiKey> {
 
 /** Plain SHA-256 is enough: the key has full entropy, so there's nothing to brute-force. */
 export async function hashApiKey(key: string): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key)));
+  return sha256(key);
+}
+
+async function sha256(text: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+}
+
+export type NewRecoveryToken = { token: string; hash: Uint8Array };
+
+/**
+ * A one-time recovery token (§2.4): 32 random bytes in base62, 43 characters, like a key's body. Only its
+ * hash is stored; the token itself goes into the email link and nowhere else.
+ */
+export async function generateRecoveryToken(): Promise<NewRecoveryToken> {
+  const token = base62(crypto.getRandomValues(new Uint8Array(KEY_BYTES)));
+  return { token, hash: await hashRecoveryToken(token) };
+}
+
+/** The same plain SHA-256 as a key's, for the same reason. */
+export function hashRecoveryToken(token: string): Promise<Uint8Array> {
+  return sha256(token);
+}
+
+/** Cheap shape check, so malformed tokens never reach D1. */
+export function looksLikeRecoveryToken(token: string): boolean {
+  return TOKEN_RE.test(token);
 }
 
 /** Cheap shape check, so malformed tokens never reach D1. */

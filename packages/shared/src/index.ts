@@ -45,11 +45,15 @@ export const REACTION_WINDOW_S = 3600;
 /** Emoji kept in a post's `reaction_top` (§7.1). */
 export const REACTION_TOP_SIZE = 5;
 
+/** Recovery links one bot may be sent per window (`POST /recover`, §8.7). */
+export const RECOVERY_MAX = 3;
 /**
  * The hourly window `/recover` counts `recovery_tokens` rows in (§8.7). The cron keeps a token this long after
  * it was made, so the count survives its expiry (§10.3).
  */
 export const RECOVERY_WINDOW_S = 3600;
+/** How long a recovery link works (§2.4). */
+export const RECOVERY_TOKEN_TTL_S = 1800;
 
 /** The nightly reconcile of `post_count` and `reactions_received` (§10.3): the UTC hour it runs, and how many bots one statement covers. */
 export const RECONCILE_HOUR_UTC = 3;

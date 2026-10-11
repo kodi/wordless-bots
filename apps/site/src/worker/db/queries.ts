@@ -18,7 +18,7 @@ import {
 } from "drizzle-orm";
 import { REACTION_TOP_SIZE } from "@wordless/shared";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
-import { BOT_STATUS, bots, posts, reactions } from "./schema.ts";
+import { BOT_STATUS, bots, posts, reactions, recoveryTokens } from "./schema.ts";
 
 export type Db = DrizzleD1Database;
 
@@ -263,6 +263,140 @@ export async function rotateKey(
   return {
     rotated: false,
     reason: after[0]?.status === BOT_STATUS.active ? "stale_key" : "banned",
+  };
+}
+
+export type NewRecoveryLink = { username: string; tokenHash: Uint8Array; createdAt: number };
+
+/** At most `max` recovery tokens may already exist for the bot in the `windowMs` before the new one's `createdAt`. */
+export type RecoveryLimit = { max: number; windowMs: number; ttlMs: number };
+
+export type IssueRecoveryResult =
+  /** `email` is where the link goes. It never leaves the Worker except in that mail. */
+  { issued: true; email: string } | { issued: false };
+
+/**
+ * Stores a recovery token for the active bot `username`, unless the bot already has `limit.max` tokens
+ * made inside the window (§8.7). The count and the insert are one statement, like register's IP limit, so
+ * parallel requests can't all pass a stale count. Nothing is stored for an unknown or banned name, and
+ * the caller can't tell the cases apart (it answers `202` for all of them).
+ *
+ * Like `createPost()`, the insert is a query-builder `INSERT ... SELECT` (a `batch()` can't run raw `sql`
+ * with parameters) and lists every column in table order. The batch ends by reading the address.
+ */
+export async function issueRecoveryToken(
+  db: Db,
+  link: NewRecoveryLink,
+  limit: RecoveryLimit,
+): Promise<IssueRecoveryResult> {
+  const recent = db
+    .select({ n: count() })
+    .from(recoveryTokens)
+    .where(
+      and(
+        eq(recoveryTokens.botId, bots.id),
+        gt(recoveryTokens.createdAt, link.createdAt - limit.windowMs),
+      ),
+    );
+  const newToken = {
+    tokenHash: sql<Uint8Array>`${link.tokenHash}`.as("token_hash"),
+    botId: bots.id,
+    createdAt: sql<number>`${link.createdAt}`.as("created_at"),
+    expiresAt: sql<number>`${link.createdAt + limit.ttlMs}`.as("expires_at"),
+    usedAt: sql<number | null>`NULL`.as("used_at"),
+  };
+  const [inserted, owner] = await db.batch([
+    db
+      .insert(recoveryTokens)
+      .select(
+        db
+          .select(newToken)
+          .from(bots)
+          .where(
+            and(
+              eq(bots.username, link.username),
+              eq(bots.status, BOT_STATUS.active),
+              sql`${recent} < ${limit.max}`,
+            ),
+          ),
+      )
+      .returning({ botId: recoveryTokens.botId }),
+    db.select({ email: bots.email }).from(bots).where(eq(bots.username, link.username)),
+  ]);
+  const email = owner[0]?.email;
+  return inserted[0] === undefined || email === undefined
+    ? { issued: false }
+    : { issued: true, email };
+}
+
+/** Takes back a token whose mail could not be sent, so a failed send doesn't use up the bot's hourly quota. */
+export async function dropRecoveryToken(db: Db, tokenHash: Uint8Array): Promise<void> {
+  await db.delete(recoveryTokens).where(eq(recoveryTokens.tokenHash, tokenHash));
+}
+
+export type RecoverKeyResult =
+  | { recovered: true; username: string }
+  | { recovered: false; reason: "token_invalid" | "banned" };
+
+/**
+ * Spends a recovery token and gives its bot a new key, in one batch (§2.4, §6.2, §7.1). There is no old
+ * key to guard on, so the token is the guard: the swap runs only while the token is unused and unexpired
+ * and the bot active, and the batch is atomic, so of two confirms with one token exactly one swaps.
+ *
+ * Order matters. The swap goes first, while the token still reads as unused. The second statement then
+ * marks every unused token of that bot used (the one presented and any older link still in an inbox), but
+ * only for the bot that now holds `next`, so a refused swap spends nothing. A ban between the request and
+ * the write leaves the token unspent and reports `banned`; any other refusal is `token_invalid`. The batch
+ * ends with a read-back that tells the two apart.
+ */
+export async function recoverKey(
+  db: Db,
+  tokenHash: Uint8Array,
+  next: { hash: Uint8Array; prefix: string },
+  now: number,
+): Promise<RecoverKeyResult> {
+  const live = db
+    .select({ botId: recoveryTokens.botId })
+    .from(recoveryTokens)
+    .where(
+      and(
+        eq(recoveryTokens.tokenHash, tokenHash),
+        isNull(recoveryTokens.usedAt),
+        gt(recoveryTokens.expiresAt, now),
+      ),
+    );
+  const [swapped, , after] = await db.batch([
+    db
+      .update(bots)
+      .set({ keyHash: next.hash, keyPrefix: next.prefix })
+      .where(and(eq(bots.status, BOT_STATUS.active), sql`${bots.id} = (${live})`))
+      .returning({ username: bots.username }),
+    db
+      .update(recoveryTokens)
+      .set({ usedAt: now })
+      .where(
+        and(
+          isNull(recoveryTokens.usedAt),
+          sql`${recoveryTokens.botId} = (SELECT ${bots.id} FROM ${bots} WHERE ${bots.keyHash} = ${next.hash})`,
+        ),
+      ),
+    db
+      .select({
+        usedAt: recoveryTokens.usedAt,
+        expiresAt: recoveryTokens.expiresAt,
+        status: bots.status,
+      })
+      .from(recoveryTokens)
+      .innerJoin(bots, eq(bots.id, recoveryTokens.botId))
+      .where(eq(recoveryTokens.tokenHash, tokenHash)),
+  ]);
+  if (swapped[0] !== undefined) return { recovered: true, username: swapped[0].username };
+  const token = after[0];
+  // A token that is otherwise good but belongs to a banned bot: the holder owns the address, so tell them.
+  const usable = token !== undefined && token.usedAt === null && token.expiresAt > now;
+  return {
+    recovered: false,
+    reason: usable && token.status !== BOT_STATUS.active ? "banned" : "token_invalid",
   };
 }
 

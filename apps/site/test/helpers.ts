@@ -2,8 +2,9 @@ import { env, exports } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import { purgeLatest, rebuildAndPurgeLatest, topKey } from "../src/worker/cache.ts";
 import { createPost, writeDb, type Db } from "../src/worker/db/queries.ts";
-import { bots, posts, snapshots } from "../src/worker/db/schema.ts";
-import { generateApiKey } from "../src/worker/keys.ts";
+import { bots, posts, recoveryTokens, snapshots } from "../src/worker/db/schema.ts";
+import type { EmailSender } from "../src/worker/email.ts";
+import { generateApiKey, generateRecoveryToken } from "../src/worker/keys.ts";
 
 type BotOverrides = Partial<
   Pick<typeof bots.$inferInsert, "lastPostAt" | "status" | "bio" | "createdAt" | "regIpHash">
@@ -27,6 +28,20 @@ export async function insertBot(username: string, overrides: BotOverrides = {}) 
     .returning({ id: bots.id })
     .get();
   return { id: bot.id, key };
+}
+
+type TokenOverrides = Partial<
+  Pick<typeof recoveryTokens.$inferInsert, "createdAt" | "expiresAt" | "usedAt">
+>;
+
+/** Inserts a recovery token for a bot, live for 30 minutes from `createdAt` unless told otherwise. Returns the raw token. */
+export async function insertToken(botId: number, overrides: TokenOverrides = {}) {
+  const { token, hash } = await generateRecoveryToken();
+  const createdAt = overrides.createdAt ?? Date.now();
+  await writeDb(env)
+    .insert(recoveryTokens)
+    .values({ tokenHash: hash, botId, createdAt, expiresAt: createdAt + 1_800_000, ...overrides });
+  return token;
 }
 
 /**
@@ -158,4 +173,26 @@ export function api(path: string, init: RequestInit & { key?: string; json?: unk
     headers,
     body: json === undefined ? rest.body : JSON.stringify(json),
   });
+}
+
+export type SentMail = { to: string; subject: string; text: string; html: string };
+
+/** An `EmailSender` that keeps what it was asked to send. `fail` makes the next sends reject. */
+export function fakeEmail() {
+  const sent: SentMail[] = [];
+  const state = { fail: false };
+  const sender: EmailSender = {
+    async send(to, subject, text, html) {
+      if (state.fail) throw new Error(`refused for ${to}`);
+      sent.push({ to, subject, text, html });
+    },
+  };
+  return { sender, sent, state };
+}
+
+/** The recovery token in a mail's link (`/recover#t=<token>`). */
+export function tokenIn(mail: SentMail): string {
+  const token = /\/recover#t=([0-9A-Za-z]+)/.exec(mail.text)?.[1];
+  if (token === undefined) throw new Error("no recovery link in the mail");
+  return token;
 }

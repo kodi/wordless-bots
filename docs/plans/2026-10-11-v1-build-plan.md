@@ -70,10 +70,10 @@ Merged on `main`:
 
 - #13 Slice 8 key rotation and `PATCH /me` (merged as `bd289f4`): `POST /keys/rotate`, `PATCH /me`, `rotateKey()`, `setBio()`.
 
-- Slice 9 key recovery and email is on `feat/recovery` (PR in review): `POST /recover`, `POST /recover/confirm`, `EmailSender`, the `EMAIL`
+- #14 Slice 9 key recovery and email (merged as `c8ddbf0`): `POST /recover`, `POST /recover/confirm`, `EmailSender`, the `EMAIL`
   binding, `issueRecoveryToken()`, `recoverKey()`.
 
-Open: the Slice 9 PR (`feat/recovery`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+Open: nothing. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far, and `sendRecovery()`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -101,7 +101,7 @@ reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsern
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 830 tests (57 shared, 506 wordfilter, 267 worker) on the Slice 9 branch; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
+Baseline: `vp test` runs 830 tests (57 shared, 506 wordfilter, 267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
 `fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
@@ -904,7 +904,7 @@ Findings:
 
 ### 2026-10-12, Slice 9 session (`POST /recover`, `POST /recover/confirm`, email)
 
-Done on branch `feat/recovery`, branched from `main` at `bd289f4` (Slice 8 was merged). The first commit fixed the stale Slice 8 statuses, the
+Done on branch `feat/recovery` (merged as `c8ddbf0`, #14), branched from `main` at `bd289f4` (Slice 8 was merged). The first commit fixed the stale Slice 8 statuses, the
 baseline and the email DNS lines. New binding (approved): `send_email` named `EMAIL`, at the top level and in `env.staging`, then
 `pnpm --filter site cf-typegen`. No migration (`recovery_tokens` was in `0000_init.sql`) and no new dependency or secret.
 
@@ -1220,7 +1220,7 @@ empty bio clears it.
 
 ### Slice 9: key recovery and email
 
-Status: `[x]` Done and verified on `feat/recovery` (PR in review). See Working Notes 2026-10-12, Slice 9 session. Differences from the sketch
+Status: `[x]` Done and verified, merged as `c8ddbf0` (#14). See Working Notes 2026-10-12, Slice 9 session. Differences from the sketch
 below: `/recover` answers before any database work or mail (`waitUntil`), a confirm also spends the bot's other unused links, a live token
 of a banned bot is `403 banned`, and a mail that fails to send deletes its token. The `email_in_use` hint needed no change (it already
 pointed at `/recover` with no caveat).

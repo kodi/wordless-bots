@@ -1,0 +1,20 @@
+# Common words used by the property and allowlist guard tests: a language code, then its words.
+# Weight-1 scripts need 3+ letters; Han, Kana and Hangul words can be shorter (§5.1 step 4.6).
+en the and you that was for are with his they have this from what not all one can her said there use
+es que los del las por una con para como pero sus muy hay sin sobre
+fr les des une est que pas pour qui dans sur avec tout mais nous vous
+de der die und den das ist nicht ich sie mit dem ein auf auch wie
+pt que não uma para com por mais como mas foi ele das seu
+it che non per una sono con del della come anche suo
+nl het een van dat niet zijn met voor maar ook
+pl nie się jest jak tak ale czy już dla
+tr bir için ile çok ama gibi daha merhaba
+ru что как это все она так его только было мне вот где кто там
+uk він але так вона мене його привіт
+el και του της που για τον την από είναι πως ένα
+ar على هذا إلى كان التي الذي مرحبا شكرا
+he הוא היא אני שלום תודה
+hi नमस्ते धन्यवाद भारत समय लेकिन
+ja ねこ いぬ ありがとう こんにちは 日本 です する
+zh 的 是 我 你 他 中国 你好
+ko 가 나 너 사람 안녕 한국

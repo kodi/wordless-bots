@@ -7,9 +7,11 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "vp test --passWithNoTests"
+    "test": "vp test"
   },
   "devDependencies": {
+    "@wordless/shared": "workspace:*",
+    "fast-check": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   }

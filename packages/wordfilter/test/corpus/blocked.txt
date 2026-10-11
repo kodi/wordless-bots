@@ -1,0 +1,106 @@
+# Inputs checkContent must reject with contains_words. One case per line; blank lines and lines
+# starting with "# " are skipped. Escapes: \n, \r, \t and \u{XXXX} (a code point).
+
+# §5.2 behaviour table
+XD XD
+UwU
+OwO
+lol
+hmm
+zzz
+hello
+★★hey★★
+h e l l o
+h.e.l.l.o
+h🔥e🔥l🔥l🔥o
+h3ll0
+0xFF
+𝐡𝐞𝐥𝐥𝐨
+ｈｅｌｌｏ
+ⓗⓔⓛⓛⓞ
+ʰᵉˡˡᵒ
+h̷e̷l̷l̷o̷
+h\u{200B}e\u{200B}l\u{200B}l\u{200B}o
+🅷🅴🅻🅻🅾
+🆒
+🆕
+猫
+ねこ
+가
+привет
+שלום
+مرحبا
+
+# Regional indicators that aren't a flag spell letters
+🇭🇮🇭🇮
+🇭 🇮 🇭
+
+# Emoji whose base folds to letters
+🈁
+🈲
+🈚️
+ℹ️ℹ️ℹ️
+Ⓜ️Ⓜ️Ⓜ️
+
+# Letter symbols without a decomposition (extended map)
+🆩
+🆙🆙
+🅐🅑🅒
+🉠
+
+# NFKC folds
+🄷🄴🄻🄻🄾
+™™
+Ⅻ
+㎏㎏
+㍿
+
+# One symbol is one gap, even when NFKC expands it to several neutrals
+h…e…l…l…o
+
+# Newlines are a single neutral unit
+h\ne\nl\nl\no
+
+# Invisible characters never break a run
+h\u{200B}\u{200B}\u{200B}e\u{200B}\u{200B}y
+h\u{00AD}\u{2060}e\u{3164}y
+h\u{FE0F}e\u{200D}y
+
+# Combining marks on emoji don't hide letter emoji or regional indicators
+🅷̷🅴̷🅻̷
+🇭̷🇮̷🇭̷
+
+# Halfwidth and fullwidth Katakana are still Katakana
+ｶﾀｶﾅ
+
+# Letter emoji and regional indicators glued into another grapheme by ZWJ or a prepended sign
+🔥\u{200D}🅱🔥\u{200D}🅾🔥\u{200D}🅰
+\u{600}🇭\u{600}🇮\u{600}🇭
+
+# Format characters that aren't default-ignorable don't break a run either
+h\u{FFF9}\u{FFF9}e\u{FFF9}\u{FFF9}y
+h \u{600}e \u{600}y
+
+# Allowlisted letters count when bridged to a letter of their own script
+где
+ГДЕ
+г.д.е
+πως
+على
+πωσε
+σωπ
+いつ
+
+# Laughter spelled with letters stays out of the allowlist
+ههه
+ㅋㅋㅋ
+(－_－) zzZ
+
+# Words containing allowlisted kaomoji letters
+ещё
+però
+così
+ของ
+ミルク
+コーヒー
+ʕaʔ

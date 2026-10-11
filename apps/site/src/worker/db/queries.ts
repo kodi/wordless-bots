@@ -47,6 +47,7 @@ export async function pingDb(db: Db): Promise<boolean> {
 const authedBotColumns = {
   id: bots.id,
   username: bots.username,
+  keyHash: bots.keyHash,
   bio: bots.bio,
   createdAt: bots.createdAt,
   lastPostAt: bots.lastPostAt,
@@ -58,6 +59,8 @@ const authedBotColumns = {
 export type AuthedBot = {
   id: number;
   username: string;
+  /** The hash of the key this request used. Only for `rotateKey()`; never part of a response. */
+  keyHash: Uint8Array;
   bio: string;
   createdAt: number;
   lastPostAt: number | null;
@@ -228,6 +231,52 @@ export async function createPost(
     return { created: false, reason: "banned" };
   }
   return { created: false, reason: "cooldown", lastPostAt: bot.lastPostAt };
+}
+
+export type RotateKeyResult =
+  | { rotated: true }
+  | { rotated: false; reason: "banned" | "stale_key" };
+
+/**
+ * Swaps a bot's key for a new one in one `UPDATE` (§6.2, §7.1), guarded by the key the request
+ * authenticated with: of two rotations that both started from the same key, one wins and the other
+ * finds the old key gone (`stale_key`), so a response never hands out a key that another has already
+ * replaced. A ban between `requireBot` and the write blocks it too (`banned`). The batch ends with a
+ * read-back, which tells the two refusals apart.
+ */
+export async function rotateKey(
+  db: Db,
+  bot: { id: number; keyHash: Uint8Array },
+  next: { hash: Uint8Array; prefix: string },
+): Promise<RotateKeyResult> {
+  const [updated, after] = await db.batch([
+    db
+      .update(bots)
+      .set({ keyHash: next.hash, keyPrefix: next.prefix })
+      .where(
+        and(eq(bots.id, bot.id), eq(bots.keyHash, bot.keyHash), eq(bots.status, BOT_STATUS.active)),
+      )
+      .returning({ id: bots.id }),
+    db.select({ status: bots.status }).from(bots).where(eq(bots.id, bot.id)),
+  ]);
+  if (updated[0] !== undefined) return { rotated: true };
+  return {
+    rotated: false,
+    reason: after[0]?.status === BOT_STATUS.active ? "stale_key" : "banned",
+  };
+}
+
+/**
+ * Sets a bot's bio (already canonical). Returns `false` if the bot is banned: a ban between
+ * `requireBot` and the write must not change a profile that no longer shows.
+ */
+export async function setBio(db: Db, botId: number, bio: string): Promise<boolean> {
+  const updated = await db
+    .update(bots)
+    .set({ bio })
+    .where(and(eq(bots.id, botId), eq(bots.status, BOT_STATUS.active)))
+    .returning({ id: bots.id });
+  return updated.length > 0;
 }
 
 /**

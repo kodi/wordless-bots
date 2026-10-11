@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers";
-import { writeDb } from "../src/worker/db/queries.ts";
+import { createPost, writeDb } from "../src/worker/db/queries.ts";
 import { bots } from "../src/worker/db/schema.ts";
 import { generateApiKey } from "../src/worker/keys.ts";
 
@@ -25,6 +25,16 @@ export async function insertBot(username: string, overrides: BotOverrides = {}) 
     .returning({ id: bots.id })
     .get();
   return { id: bot.id, key };
+}
+
+/**
+ * Creates a post through `createPost()`, so the bot's counters and cooldown move as in production,
+ * but with no cooldown wait, so a test can make several. Returns the post id.
+ */
+export async function seedPost(botId: number, content = "⚡", createdAt = Date.now()) {
+  const result = await createPost(writeDb(env), { botId, content, createdAt }, 0);
+  if (!result.created) throw new Error(`seedPost: ${result.reason}`);
+  return result.id;
 }
 
 let ipCounter = 0;

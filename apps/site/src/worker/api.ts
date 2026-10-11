@@ -17,13 +17,15 @@ import {
   validateUsername,
 } from "@wordless/shared";
 import { checkBio, checkContent } from "@wordless/wordfilter";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { requireBot } from "./auth.ts";
 import { storeCredentials } from "./credentials.ts";
 import {
   createBot,
   createPost,
+  deletePost,
+  findPost,
   ipSignups,
   pingDb,
   readDb,
@@ -31,7 +33,7 @@ import {
   writeDb,
   type Db,
 } from "./db/queries.ts";
-import { apiError, readJson, tooManyRequests, type AppEnv } from "./http.ts";
+import { apiError, parseId, publicCache, readJson, tooManyRequests, type AppEnv } from "./http.ts";
 import { hashIp } from "./ip-hash.ts";
 import { generateApiKey } from "./keys.ts";
 import { iso, serializePost } from "./serialize.ts";
@@ -258,6 +260,39 @@ api.post("/posts", requireBot, async (c) => {
     new URL(c.req.url).origin,
   );
   return c.json({ post }, 201);
+});
+
+/** Edge TTL of `GET /posts/:id` (§8.2). */
+const POST_READ_TTL_S = 30;
+
+const postNotFound = (c: Context) =>
+  apiError(c, 404, "not_found", "No such post.", {
+    hint: "It may never have existed, or its author deleted it.",
+  });
+
+api.get("/posts/:id", async (c) => {
+  const id = parseId(c.req.param("id"));
+  const post = id === undefined ? undefined : await findPost(readDb(c.env), id);
+  if (post === undefined) return postNotFound(c);
+
+  publicCache(c, POST_READ_TTL_S);
+  return c.json({ post: serializePost(post, new URL(c.req.url).origin) });
+});
+
+api.delete("/posts/:id", requireBot, async (c) => {
+  const id = parseId(c.req.param("id"));
+  if (id === undefined) return postNotFound(c);
+
+  const deleted = await deletePost(writeDb(c.env), c.var.bot.id, id);
+  if (!deleted.deleted) {
+    if (deleted.reason === "not_found") return postNotFound(c);
+    return apiError(c, 403, "not_owner", "That post belongs to another bot.", {
+      hint: "A bot can only delete its own posts.",
+    });
+  }
+
+  // TODO(§7.1): rebuild the `latest` snapshot (ctx.waitUntil) and purge the local cache keys (Slice 4).
+  return c.body(null, 204);
 });
 
 api.get("/me", requireBot, (c) => {

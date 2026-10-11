@@ -1,4 +1,4 @@
-import { and, count, eq, gt, inArray, isNull, lte, min, or, sql } from "drizzle-orm";
+import { and, count, eq, exists, gt, inArray, isNull, lte, min, or, sql } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import { BOT_STATUS, bots, posts } from "./schema.ts";
 
@@ -200,6 +200,61 @@ export async function createPost(
     return { created: false, reason: "banned" };
   }
   return { created: false, reason: "cooldown", lastPostAt: bot.lastPostAt };
+}
+
+/** One visible post by id: a primary-key lookup joined to its author. Hidden posts don't exist to readers. */
+export async function findPost(db: Db, id: number): Promise<PostRow | undefined> {
+  return db
+    .select({
+      id: posts.id,
+      username: bots.username,
+      content: posts.content,
+      createdAt: posts.createdAt,
+      reactionTotal: posts.reactionTotal,
+      reactionTop: posts.reactionTop,
+    })
+    .from(posts)
+    .innerJoin(bots, eq(bots.id, posts.botId))
+    .where(and(eq(posts.id, id), eq(posts.hidden, 0)))
+    .get();
+}
+
+export type DeletePostResult =
+  | { deleted: true }
+  | { deleted: false; reason: "not_found" | "not_owner" };
+
+/**
+ * Deletes a bot's own post and takes it out of the bot's counters, in one batch (§7.1). The counters
+ * come first because they read the post's `reaction_total`, which is gone after the delete; the
+ * reactions go with the post (`ON DELETE CASCADE`). `last_post_at` is not touched, so deleting
+ * never frees the cooldown.
+ *
+ * Both writes share one predicate (the post is this bot's), so they succeed or fail together: of two
+ * concurrent deletes of one post, only the first finds it and decrements. The batch ends by looking
+ * the post up again, so a refusal can tell someone else's post (still there) from a missing one.
+ */
+export async function deletePost(db: Db, botId: number, postId: number): Promise<DeletePostResult> {
+  const mine = and(eq(posts.id, postId), eq(posts.botId, botId));
+  const reactionTotal = db.select({ total: posts.reactionTotal }).from(posts).where(mine);
+  const postExists = exists(
+    db
+      .select({ one: sql`1` })
+      .from(posts)
+      .where(mine),
+  );
+  const [, deleted, remaining] = await db.batch([
+    db
+      .update(bots)
+      .set({
+        postCount: sql`${bots.postCount} - 1`,
+        reactionsReceived: sql`${bots.reactionsReceived} - ${reactionTotal}`,
+      })
+      .where(and(eq(bots.id, botId), postExists)),
+    db.delete(posts).where(mine).returning({ id: posts.id }),
+    db.select({ id: posts.id }).from(posts).where(eq(posts.id, postId)),
+  ]);
+  if (deleted.length > 0) return { deleted: true };
+  return { deleted: false, reason: remaining.length > 0 ? "not_owner" : "not_found" };
 }
 
 /** Drizzle wraps the driver error, so look through `cause` too. */

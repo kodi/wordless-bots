@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-11 (end of the Slice 2 session: `POST /posts`).
+Last updated: 2026-10-11 (end of the Slice 3 session: `GET` and `DELETE /posts/:id`).
 
 ## Summary
 
@@ -48,21 +48,26 @@ Merged on `main`:
 - #4 `POST /register` (squash-merged as `521914b`): `parseEmail()` in `packages/shared`, `createBot()`,
   `hashIp()`, `storeCredentials()`, the `IP_HASH_SECRET` secret and `.dev.vars` flow.
 - #5 register rate limit, 5/hour/IP in D1 (squash-merged as `765be6d`).
+- #6 `POST /posts` (squash-merged as `1573a94`): `createPost()`, `serializePost()`, `PostRow`.
 
-Open: PR #6 `feat(api): add POST /posts` (branch `feat/post-create`, from `765be6d`). Check
-with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+Open: the Slice 3 PR `feat(api): add GET and DELETE /posts/:id` (branch `feat/post-read-delete`, from
+`1573a94`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see
+Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
-`ip-hash.ts`, `serialize.ts` (`iso()`, `serializePost()`), `db/schema.ts`, `db/queries.ts`. Tests are in `apps/site/test/` with helpers
-`insertBot()` (accepts `lastPostAt`, `status`, `bio`, `createdAt`, `regIpHash`), `api()` and
-`nextIp()` in `helpers.ts`. `http.ts` has `apiError()`, `readJson()` and `tooManyRequests()`
-(`429` with `Retry-After` and `retry_after_s`; reuse it for `429 cooldown` and reaction limits).
+`ip-hash.ts`, `serialize.ts` (`iso()`, `serializePost()`), `db/schema.ts`, `db/queries.ts`
+(`createPost()`, `findPost()`, `deletePost()`, `PostRow`). Tests are in `apps/site/test/` with helpers
+`insertBot()` (accepts `lastPostAt`, `status`, `bio`, `createdAt`, `regIpHash`), `seedPost()` (a post
+through `createPost()` with no cooldown wait), `api()` and `nextIp()` in `helpers.ts`. `http.ts` has
+`apiError()`, `readJson()`, `tooManyRequests()` (`429` with `Retry-After` and `retry_after_s`; reuse it
+for `429 cooldown` and reaction limits), `parseId()` (canonical row id from a URL segment) and
+`publicCache(c, ttlS)` (the §10.1 `Cache-Control` for public JSON).
 
-Baseline: `vp test` runs 620 tests (49 shared, 506 wordfilter, 65 worker) on the Slice 2 branch.
-On `main` at `765be6d` (before Slice 2) it is 606.
+Baseline: `vp test` runs 635 tests (49 shared, 506 wordfilter, 80 worker) on the Slice 3 branch.
+On `main` at `1573a94` (before Slice 3) it is 620.
 
-Not built yet: reading or deleting posts, feed, top, reactions, profiles, key rotation, `PATCH /me`, recovery, email,
+Not built yet: feed, top, reactions, profiles, key rotation, `PATCH /me`, recovery, email,
 admin, form fallback, snapshots, caching, cron, burst rate limits (the register hourly limit exists),
 agent docs (`/skill.md` etc.), all of
 the real UI, Analytics Engine events.
@@ -179,7 +184,7 @@ Findings:
 
 ### 2026-10-11, Slice 2 session (`POST /posts`)
 
-Done on branch `feat/post-create` (PR #6), branched from `main` at `765be6d` (PR #5 was merged). Not merged yet.
+Done on branch `feat/post-create` (PR #6), branched from `main` at `765be6d` (PR #5 was merged). Merged as `1573a94`.
 
 - Design: `createPost()` (`db/queries.ts`) is one `db.batch()` of three statements: a conditional
   `INSERT INTO posts ... SELECT ... FROM bots WHERE <may post> RETURNING id`, `UPDATE bots ... WHERE
@@ -248,6 +253,77 @@ Findings:
   Neither `/me` nor `POST /posts` sets it (requests with `Authorization` aren't stored by shared
   caches anyway). Worth a one-line fix in `requireBot` some time; ask first.
 - Not touched, as instructed: `wrangler.jsonc`, tests-in-CI (Slice A), burst limits (Slice 1.1).
+
+### 2026-10-11, Slice 3 session (`GET` and `DELETE /posts/:id`)
+
+Done on branch `feat/post-read-delete`, branched from `main` at `1573a94` (PR #6 was merged). Not merged yet.
+
+- Design: `deletePost(db, botId, postId)` (`db/queries.ts`) is one `db.batch()` of three query builders:
+  `UPDATE bots SET post_count = post_count - 1, reactions_received = reactions_received - (SELECT
+  reaction_total FROM posts WHERE <mine>) WHERE id = ? AND EXISTS (SELECT 1 FROM posts WHERE
+  <mine>)`, then `DELETE FROM posts WHERE <mine> RETURNING id`, then `SELECT id FROM posts WHERE id =
+  ?`. `<mine>` is `id = ? AND bot_id = ?`, so both writes share one predicate. The counters go first
+  because they read the post the delete removes. A returned row means `204`; otherwise the read-back
+  says `403 not_owner` (post still there) or `404`. `last_post_at` is never in the `SET`. Result:
+  `{deleted: true} | {deleted: false, reason: "not_found" | "not_owner"}`.
+- `findPost(db, id)` selects into `PostRow` (inner join `bots`, `hidden = 0`). The route returns
+  `{post: serializePost(...)}` with `Cache-Control: public, max-age=5, s-maxage=30` on the `200` only.
+  `publicCache()` in `http.ts` builds that header for later routes. The TTL (30) is a local constant in
+  `api.ts`; Slice 4.1 should gather the per-route TTLs.
+- `parseId()` accepts only `^[1-9][0-9]*$` that is a safe integer: `/posts/012` and `/posts/12.0` are `404`
+  even though post 12 exists, so one post has one cache key (§10.1). It applies to `DELETE` too.
+- Tests (15 new): `post-read.test.ts` (6), `post-delete.test.ts` (8), and a cascade test in
+  `schema.test.ts`. Reactions are seeded by hand in `post-delete.test.ts` (`addReactions()` inserts the
+  rows and bumps `posts.reaction_*` and `bots.reactions_received`, the way §7.1's React batch will).
+
+Verified (all run from the repo root):
+
+- `vp check`: clean (42 files linted and type-checked, 62 formatted).
+- `vp test`: 18 files, **635 passed** (620 baseline + 15 new). The 17 tests in the three touched files
+  passed 10 runs in a row (`vp test apps/site/test/post-delete.test.ts apps/site/test/post-read.test.ts
+  apps/site/test/schema.test.ts`).
+- `vp run -r build`: passed (Worker 91.81 kB gzip, SPA 94.96 kB gzip).
+- Mutation checks, each reverted afterwards (the three files above):
+  - Owner check dropped (`<mine>` without `bot_id`): the `403 not_owner` test fails.
+  - `post_count` not decremented: 4 tests fail. `reactions_received` not decremented: 2 fail.
+  - `last_post_at` set to `null` in the update: the cooldown test fails.
+  - `EXISTS` guard dropped from the update: 4 tests fail. A missing id gives `500` (`NOT NULL constraint
+    failed: bots.reactions_received`, because `x - NULL` is `NULL`); someone else's post is wrongly decremented.
+  - Delete placed before the counters: 4 tests fail.
+  - `deletePost` rewritten as read-then-write (separate `SELECT`, unconditional batch): **only** the
+    direct `Promise.all` test fails. The HTTP race test passes it, as ARCHITECTURE §15 warns.
+  - `ON DELETE cascade` removed from `0000_init.sql` (temporarily): the schema cascade test and 2 delete
+    tests fail.
+  - `hidden = 0` dropped from `findPost`: the hidden-post test fails.
+  - `parseId` with leading zeros allowed, or no validation: the canonical-spelling test fails.
+  - `publicCache()` call removed, or the TTL changed: the cacheable-read test fails.
+- Live check on a second dev server (started with `cd apps/site && vp dev --port 5174 --strictPort`,
+  stopped afterwards; the server on :5173, pid 42248, was left alone): `GET /posts/2` anonymous returned
+  `200` with `cache-control: public, max-age=5, s-maxage=30` and the same body as `POST /posts`;
+  another bot's `DELETE` gave `403 not_owner`, no key gave `401`, the owner's gave `204` with no body,
+  then `GET` and a second `DELETE` gave `404`, `/me` showed `post_count: 0` with `last_post_at` and
+  `next_post_at` unchanged, and a new post was `429 cooldown`. `abc`, `02` and `1.5` were `404`. The local
+  D1 was empty before; the probe bots and posts and the `posts` `sqlite_sequence` row were deleted
+  afterwards (`pnpm exec wrangler d1 execute DB --local --command "..."` from `apps/site`).
+
+Findings:
+
+- **`vp dev` at the repo root is plain Vite, not the site.** It prints "You are running `vp dev` as a
+  Vite+ built-in command", serves no Worker, and every `/api` request is an empty `404`. Run it from
+  `apps/site` (`cd apps/site && vp dev --port 5174 --strictPort`) or use `mise run dev`. The Slice 1 and
+  2 notes give the command without saying which directory.
+- `wrangler` is not on PATH outside a mise shell. Use `pnpm exec wrangler ...` from `apps/site`.
+- Junk ids (`abc`, `-1`, `1e3`, `1e20`) are `404` even with no validation at all, because D1 binds them and
+  finds no row. The validation is there for the cache key (canonical spelling), and that is what is tested.
+- **For Slice 5:** `reactions_by_bot` counts live `reactions` rows, so deleting a post removes the reactions
+  on it and the reactors get that part of their hourly quota back. Decide whether that matters (a bot could
+  re-react after its friend deletes and reposts) and note it in §8.7 if it is accepted.
+- A hidden post can still be deleted by its author (`deletePost` ignores `hidden`). In v1 only a ban hides
+  posts and a banned bot can't authenticate, so this is unreachable until an admin hide exists. Revisit
+  with Slice 11 if admin gets a per-post hide.
+- Not changed, as instructed: the missing `Cache-Control: private, no-store` on authed responses (`/me`,
+  `POST /posts`, `DELETE /posts/:id`; ask the user first), `wrangler.jsonc`, tests-in-CI (Slice A), burst
+  limits (Slice 1.1).
 
 ## Open Questions
 
@@ -347,7 +423,7 @@ Status: `[ ]` Blocked on Open Question 1.
 
 ### Slice 2: `POST /posts`
 
-Status: `[x]` Done and verified on `feat/post-create` (PR #6, not merged yet). See Working Notes 2026-10-11,
+Status: `[x]` Done and verified. Merged as `1573a94` (PR #6). See Working Notes 2026-10-11,
 Slice 2 session. Differences from the sketch below: the `UPDATE` also checks `status = 0`, the batch
 ends with a read-back of the bot, and the insert is a Drizzle insert-select (raw `sql` can't go in a
 D1 batch in drizzle-orm 0.45).
@@ -373,7 +449,10 @@ D1 batch in drizzle-orm 0.45).
 
 ### Slice 3: `GET /posts/:id` and `DELETE /posts/:id`
 
-Status: `[ ]`
+Status: `[x]` Done and verified on `feat/post-read-delete` (PR open, not merged yet). See Working Notes
+2026-10-11, Slice 3 session. Differences from the sketch below: `GET` answers `{post}` (like `POST
+/posts`), ids must be in canonical spelling, and the delete batch ends with a read-back that tells
+`403 not_owner` from `404`.
 
 - Read: PK lookup joined to `bots`; hidden posts are `404`. Set the §10.1 `Cache-Control` headers
   (the cache layer itself comes in Slice 4.1).
@@ -508,26 +587,30 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 3: `GET /posts/:id` and `DELETE /posts/:id`.** Slice A (tests in CI) is still deferred by the
-user and Slice 1.1 still waits on the Rate Limiting binding (Open Question 1). `AGENTS.md` is
-deliberately unchanged, so the user will point you at this file.
+**Slice 4: `latest` snapshot and `GET /feed`.** Slice A (tests in CI) is still deferred by the user and
+Slice 1.1 still waits on the Rate Limiting binding (Open Question 1). `AGENTS.md` is deliberately
+unchanged, so the user will point you at this file.
 
 Start here:
 
-1. `git fetch origin`. If PR #6 (Slice 2, `feat/post-create`) is merged:
-   `git switch main && git pull`, then `git switch -c feat/post-read-delete`. If it is not merged and
-   the user wants to continue anyway, branch from `feat/post-create`. Don't use the `gh` API heavily
-   if it is rate limited; `git` over SSH is unaffected.
-2. Read `AGENTS.md`, then ARCHITECTURE §7.0 (the batch note), §7.1 (create post, delete post), §7.2,
-   §8.1, §8.2, §8.4 and §10.1, then `db/queries.ts` (`createPost()`, `PostRow`), `serialize.ts`
-   (`serializePost()`) and `test/posts.test.ts`.
-3. `vp test` should report 620 passing before you change anything (606 on a `main` without Slice 2).
-   Use `mise run dev` only if you need a live server; check port 5173 first (`lsof -ti :5173`),
-   because one may already be running, and never kill a server you didn't start.
-4. Follow the Slice 3 section above. Select into `PostRow` (join `bots` for `username`) and reuse
-   `serializePost()`. Reads use `readDb()`. Remember: batch items must be query builders, not raw
-   `sql` statements (§7.0). Seed posts with `createPost()` or a direct insert, and reactions by hand.
+1. `git fetch origin`. If the Slice 3 PR (`feat/post-read-delete`) is merged: `git switch main && git pull`,
+   then `git switch -c feat/feed`. If it is not merged and the user wants to continue anyway, branch from
+   `feat/post-read-delete`. Don't use the `gh` API heavily if it is rate limited; `git` over SSH is
+   unaffected.
+2. Read `AGENTS.md`, then ARCHITECTURE §7.0 (the batch note), §7.2, §8.1, §8.2, §10.1 to §10.3 and §15,
+   then `db/queries.ts` (`PostRow`, `findPost()`, `createPost()`, `deletePost()`), `serialize.ts`, `http.ts`
+   (`publicCache()`, `parseId()`) and the two `TODO(§7.1)` lines in `api.ts` (post create and delete): those
+   are where `ctx.waitUntil(rebuildLatest(...))` goes.
+3. `vp test` should report 635 passing before you change anything (620 on a `main` without Slice 3).
+   For a live server run `cd apps/site && vp dev --port 5174 --strictPort`: `vp dev` at the repo root
+   serves no Worker. Check `lsof -ti :5173` first, because one may already be running, and never kill a
+   server you didn't start (compare the pid's start time with yours).
+4. Follow the Slice 4 section above. Open Question 6 (what `cursor` is when the feed is empty) is yours to
+   decide: pick one, write it in §8.1 and say so in the PR. Reads use `readDb()`, snapshot rebuilds read
+   the primary. Batch items must be query builders, not raw `sql` statements (§7.0). Reuse `serializePost()`
+   and the `PostRow` select from `findPost()`. `GET /posts/:id` answers `{post}`; the feed answers
+   `{posts, cursor, next}`.
 5. Ask the user before touching `wrangler.jsonc` bindings.
 6. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this
-   file's Slice 3 is `[x]` with the exact commands under Working Notes, and `Next Slice` points at
-   Slice 4.
+   file's Slice 4 is `[x]` with the exact commands under Working Notes, and `Next Slice` points at
+   Slice 4.1.

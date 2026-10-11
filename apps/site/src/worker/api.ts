@@ -53,6 +53,8 @@ import {
   pingDb,
   reactToPost,
   readDb,
+  rotateKey,
+  setBio,
   takenUsernames,
   unreactToPost,
   writeDb,
@@ -571,4 +573,51 @@ api.get("/me", requireBot, (c) => {
     next_post_at: waiting ? iso(readyAt) : null,
     cooldown_remaining_s: waiting ? Math.ceil((readyAt - now) / 1000) : 0,
   });
+});
+
+const BioBody = z.object({ bio: z.string() });
+
+// An empty bio clears it. Anything else goes through the same filter as register's, so a bio is
+// stored in its canonical form.
+api.patch("/me", requireBot, async (c) => {
+  const body = await readJson(c, BioBody);
+  if (body instanceof Response) return body;
+
+  let bio = "";
+  if (body.bio !== "") {
+    const verdict = checkBio(body.bio, { maxGraphemes: BIO_MAX_GRAPHEMES });
+    if (!verdict.ok) {
+      return apiError(c, 422, verdict.code, `The bio was rejected (${verdict.code}).`, {
+        field: "bio",
+        matches: verdict.matches ?? [],
+        hint: verdict.hint,
+      });
+    }
+    bio = verdict.content;
+  }
+
+  const bot = c.var.bot;
+  if (!(await setBio(writeDb(c.env), bot.id, bio))) {
+    return apiError(c, 403, "banned", "This bot is banned.");
+  }
+  // The bio is part of the cached profile. Dropped before the response, so the bot's next read shows it.
+  await purgeProfile(new URL(c.req.url).origin, bot.username);
+  return c.json({ bio });
+});
+
+// Rotation changes nothing a profile shows, so it purges nothing.
+api.post("/keys/rotate", requireBot, async (c) => {
+  const bot = c.var.bot;
+  const next = await generateApiKey();
+  const rotated = await rotateKey(writeDb(c.env), bot, next);
+  if (!rotated.rotated) {
+    if (rotated.reason === "banned") return apiError(c, 403, "banned", "This bot is banned.");
+    // Another rotation with this key got there first, so it is already dead.
+    return apiError(c, 401, "invalid_api_key", "This API key was just replaced.", {
+      hint: "Use the key the other rotation returned, or recover the bot's key.",
+    });
+  }
+
+  // The only time the new key is shown. `requireBot` already made the response `private, no-store`.
+  return c.json({ api_key: next.key });
 });

@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-11 (end of the Slice 7 session: profiles and avatars).
+Last updated: 2026-10-11 (end of the Slice 8 session: key rotation and `PATCH /me`).
 
 ## Summary
 
@@ -68,6 +68,8 @@ Merged on `main`:
   `GET /bots/:username/posts?before=`, `GET /a/:username.svg`, `findBotProfile()`, `botPosts()`, `purgeProfile()`, the
   avatar generator in `packages/shared`.
 
+- Slice 8 key rotation and `PATCH /me` is on `feat/keys-me` (PR in review): `POST /keys/rotate`, `PATCH /me`, `rotateKey()`, `setBio()`.
+
 Open: the Slice 8 PR (`feat/keys-me`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
@@ -77,7 +79,7 @@ and gap rules), `cache.ts` (L0 and L1: `readLatestCached()`, `cachedResponse()`,
 `purgePost()`, `purgeProfile()`, `rebuildAndPurgeLatest()` and the `latestKey()`, `feedBeforeKey()`, `postKey()`, `topKey()`,
 `profileKey()`, `profileBeforeKey()` builders),
 `cron.ts` (`runScheduled()`, `dueJobs()`), `db/schema.ts`, `db/queries.ts` (`createPost()`, `findPost()`,
-`deletePost()`, `reactToPost()`, `unreactToPost()`, `visiblePosts()`, `olderPosts()`, `findBotProfile()`, `botPosts()`,
+`deletePost()`, `rotateKey()`, `setBio()`, `reactToPost()`, `unreactToPost()`, `visiblePosts()`, `olderPosts()`, `findBotProfile()`, `botPosts()`,
 `botPostsQuery()`, `PostRow`, `postRowColumns`),
 `db/snapshots.ts` (`rebuildLatest()`, `readLatest()`, `rebuildTop24()`, `readTop()`, `topPosts()`, `snapshotAges()`) and
 `db/maintenance.ts` (`deleteStaleRecoveryTokens()`, `reconcileBotCounters()`).
@@ -96,11 +98,11 @@ reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsern
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 795 tests (57 shared, 506 wordfilter, 232 worker) on `main` at `fd7e3ce`; 757 (202 worker) at
-`ea90eb6`. Before Slice 6 it was
+Baseline: `vp test` runs 809 tests (57 shared, 506 wordfilter, 246 worker) on the Slice 8 branch; 795 (232 worker) on `main` at
+`fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
-Not built yet: key rotation, `PATCH /me`, recovery, email, admin, form
+Not built yet: recovery, email, admin, form
 fallback, burst rate limits (the register hourly limit exists), agent docs (`/skill.md` etc.), all of the real UI,
 Analytics Engine events.
 
@@ -844,6 +846,58 @@ Findings:
 - Not changed, as instructed: the Rate Limiting binding (Slice 1.1) and the 20/min reaction burst, tests in CI (Slice A), `/top` purging,
   `wrangler.jsonc`.
 
+### 2026-10-11, Slice 8 session (`POST /keys/rotate`, `PATCH /me`)
+
+Done on branch `feat/keys-me`, branched from `main` at `fd7e3ce` (Slice 7 was merged). The first commit fixed the stale Slice 7
+statuses and the baseline in this file. No new binding, dependency or migration; `wrangler.jsonc` untouched.
+
+- Design:
+  - **`rotateKey(db, bot, next)`** (`db/queries.ts`) is one `db.batch()`: `UPDATE bots SET key_hash, key_prefix WHERE id = ? AND key_hash = <the
+    key the request used> AND status = 0 RETURNING id`, then a status read-back. The old-hash guard is what makes two parallel rotations
+    from one key safe: one wins, the other is `stale_key` (`401 invalid_api_key`), so no response hands out a key that another already
+    replaced. Without the guard both would answer `200` and the first caller's key would be dead. A ban between `requireBot` and the
+    write is `banned` (`403`). `AuthedBot` gained `keyHash` (the hash of the key used, selected by `requireBot`; never in a response).
+  - **`POST /keys/rotate`** answers `200 {api_key}` and nothing else. **No `store_credentials`** (it would send `since_cursor: null` and
+    invite the agent to reset its feed cursor); §8.4 only ever said `{api_key}`. `private, no-store` comes from `requireBot`.
+    It purges nothing.
+  - **`PATCH /me {bio}`** answers `200 {bio}` (the stored, canonical form). Same filter and `422` body as register (`checkBio`,
+    `BIO_MAX_GRAPHEMES`, `field: "bio"`). **Decision: `""` clears the bio**; a whitespace-only bio is `422 empty`, as at register (only an
+    exact `""` is "no bio" there too). A missing or non-string `bio` is `400`. `setBio()` is one `UPDATE ... WHERE id = ? AND status = 0
+    RETURNING`; no row is a ban after the key check (`403`). Then `await purgeProfile(origin, username)` before the response, as
+    `POST /posts` does. A same-value bio still purges (cheap; no pre-read).
+  - Docs: §6.2, §8.4 (the table, a `PATCH /me` and a rotate paragraph) and §10.2 (the bio bullet).
+- Tests (14 new, 795 to 809): `test/keys-me.test.ts`. `PATCH /me` (6): canonical bio and headers, the cached profile dropped, `""` clears
+  (profile too), five 422 codes leave the bio and the profile alone, bad bodies are 400, no key and a banned bot; plus `setBio()` on a banned
+  bot. Rotation (7): the old key is `401 invalid_api_key` on the very next request while the new one works, and the row holds the new hash and
+  prefix; the response has only `api_key`; two rotations in a row; nothing else of the bot changes and another bot's key still works; no key and
+  banned; `rotateKey()` on a banned bot; **eight parallel `rotateKey()` calls give one winner and seven `stale_key`**, and six parallel HTTP
+  requests give one `200` whose key works.
+
+Verified (all run from the repo root):
+
+- `vp check`: clean (61 files linted and type-checked, 90 formatted).
+- `vp test`: 29 files, **809 passed** (795 baseline + 14 new), 3 full runs in a row; `vp test apps/site/test/keys-me` passed 10 runs in a row.
+- `vp run -r build`: passed (Worker 104.88 kB gzip, up from 104.32; SPA 94.96 kB gzip).
+- Mutation checks, each reverted afterwards, whole suite run (a script that backs the file up and restores it). 13 mutants, all caught:
+  - Purge removed from `PATCH /me` (2); filter skipped (2); `""` not cleared, or the old bio kept (1 each); `setBio()` without the status guard (1).
+  - Rotate: key guard dropped (1: the `rotateKey()` race test; the HTTP race passes alone, as §15 warns), status guard dropped (1), hash not
+    written (4), prefix not written (1), refusal reasons swapped (2), an extra field in the response (1: it survived until the test pinned the key set),
+    response made cacheable (1).
+- Live check against the already running `mise run dev` server on :5173 (pid 53728, nothing started or killed): register with a bio (own
+  `CF-Connecting-IP`), warm `GET /bots/:name`, `PATCH /me` (200, `{"bio":"⚡⚡"}`, `private, no-store`) and the profile showed it at once; a bio
+  with words was `422 contains_words`; `""` answered `{"bio":""}` and the profile was empty; `POST /keys/rotate` was `200` with
+  `private, no-store`, then the old key was `401 invalid_api_key` and the new one `200` on `/me`. The probe bots were deleted from the local D1
+  afterwards (it was empty before).
+
+Findings:
+
+- **Parallel rotations need the old-hash guard**, and only a direct `Promise.all` on `rotateKey()` shows it; six parallel HTTP requests passed
+  the unguarded version (§15).
+- In a curl script, `api_key` appears twice in the register response (also in `store_credentials.file_format`): take the first match
+  (`grep -o ... | head -1`). zsh's `echo` expands `\n` in the JSON; use `printf '%s'`.
+- Recovery (Slice 9) will rotate a key too. It has no key to guard on, so it needs its own write; don't reuse `rotateKey()` as is.
+- Not changed, as instructed: the Rate Limiting binding (Slice 1.1), tests in CI (Slice A), `/top` purging, `wrangler.jsonc`.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -1064,7 +1118,9 @@ Differences from the sketch below: a banned bot's profile is a `404`, the profil
 
 ### Slice 8: `POST /keys/rotate` and `PATCH /me`
 
-Status: `[ ]` Small and independent. Can be pulled forward as a warm-up.
+Status: `[x]` Done and verified on `feat/keys-me` (PR in review). See Working Notes 2026-10-11, Slice 8 session. Differences from the sketch
+below: rotation is guarded by the old key's hash (parallel rotations: one wins, the rest are `401`), the response is `{api_key}` only, and an
+empty bio clears it.
 
 - Rotate: new key, old one dead on the next request (auth reads the primary). `PATCH /me {bio}` uses
   `checkBio` like register. Never log keys.
@@ -1130,23 +1186,21 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 8: `POST /keys/rotate` and `PATCH /me`.** Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the
-Rate Limiting binding (Open Question 1; it also owns the 20/min reaction burst, see the `TODO(§8.7)` in `api.ts`).
-`AGENTS.md` is deliberately unchanged, so the user will point you at this file.
+**Slice 9: key recovery and email.** **Blocked on Open Question 2** (Cloudflare Email Service): sending is enabled, but the DNS records are
+not in the zone and the `send_email` binding (and Workers Paid) need the user's go-ahead. Ask before starting. Slice A (tests in CI) is still
+deferred by the user and Slice 1.1 still waits on the Rate Limiting binding (Open Question 1). `AGENTS.md` is deliberately unchanged, so the
+user will point you at this file.
 
-Start here:
+If Open Question 2 stays open, pick one of the unblocked slices instead: Slice 10 (agent docs), Slice 11 (admin; needs `ADMIN_TOKEN` as a
+new secret, ask first) or Slice 12 (form fallback).
 
-1. `git fetch origin && git switch main && git pull`, then `git switch -c feat/keys-me`. Slice 7 should be merged by then; check with
-   `git log origin/main --oneline -3`. If it isn't and the user wants to continue anyway, branch from `feat/profiles`.
-2. Read `AGENTS.md`, the Cross-slice rules, the "Slice 7" Working Notes and the Slice 8 section above. Then ARCHITECTURE §6.2 (keys),
-   §8.4 (authenticated routes), §8.2 (`/bots/:username`) and §10.2.
-   - **`PATCH /me {bio}` changes the cached profile**: call `purgeProfile(origin, username)` before the response (`cache.ts`, as `POST /posts`
-     does). Use `checkBio` and `BIO_MAX_GRAPHEMES` as register does, and an empty bio clears it.
-   - Rotation: the new key is returned once, `private, no-store`, and the old one must be dead on the next request (auth reads the primary).
-     Never log a key. Rotation changes nothing a profile shows, so it purges nothing.
-3. `vp test` should report 795 passing before you change anything. For a live server, a `mise run dev` one may already be running on :5173:
-   reuse it, it reloads on changes. Otherwise run `cd apps/site && vp dev --port 5174 --strictPort`: `vp dev` at the repo root serves no
-   Worker. Never kill a server you didn't start. Clean your probe rows out of the local D1 afterwards
-   (`cd apps/site && npx wrangler d1 execute DB --local --command "..."`).
-4. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this file's Slice 8 is `[x]` with the exact
-   commands under Working Notes, and `Next Slice` points at Slice 9 (key recovery and email, blocked on Open Question 2).
+Start here (Slice 9):
+
+1. `git fetch origin && git switch main && git pull`, then branch. Slice 8 should be merged by then; check with `git log origin/main --oneline -3`.
+2. Read `AGENTS.md`, the Cross-slice rules, the "Slice 8" Working Notes and the Slice 9 section above, then ARCHITECTURE §6.3, §8.3, §8.7 and §12.
+   Check the DNS first: `dig +short MX cf-bounce.wordless.one @henrik.ns.cloudflare.com`.
+   - Recovery issues a new key without an old one to guard on: write its own conditional update, don't reuse `rotateKey()`.
+   - A recovered key changes nothing a profile shows, so it purges nothing.
+3. `vp test` should report 809 passing before you change anything.
+4. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this file's Slice 9 is `[x]` with the exact
+   commands under Working Notes, and `Next Slice` points at the next unblocked slice.

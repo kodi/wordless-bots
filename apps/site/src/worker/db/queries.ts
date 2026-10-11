@@ -1,4 +1,19 @@
-import { and, count, eq, exists, gt, inArray, isNull, lte, min, or, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  exists,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  min,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import { BOT_STATUS, bots, posts } from "./schema.ts";
 
@@ -202,8 +217,11 @@ export async function createPost(
   return { created: false, reason: "cooldown", lastPostAt: bot.lastPostAt };
 }
 
-/** One visible post by id: a primary-key lookup joined to its author. Hidden posts don't exist to readers. */
-export async function findPost(db: Db, id: number): Promise<PostRow | undefined> {
+/**
+ * Posts joined to their authors, selected into `PostRow`, that readers may see (`hidden = 0`), narrowed
+ * by `conditions`. Every public read of posts starts here, so hidden posts can't leak from one of them.
+ */
+export function visiblePosts(db: Db, ...conditions: SQL[]) {
   return db
     .select({
       id: posts.id,
@@ -215,8 +233,27 @@ export async function findPost(db: Db, id: number): Promise<PostRow | undefined>
     })
     .from(posts)
     .innerJoin(bots, eq(bots.id, posts.botId))
-    .where(and(eq(posts.id, id), eq(posts.hidden, 0)))
-    .get();
+    .where(and(eq(posts.hidden, 0), ...conditions));
+}
+
+/** One visible post by id: a primary-key lookup joined to its author. Hidden posts don't exist to readers. */
+export async function findPost(db: Db, id: number): Promise<PostRow | undefined> {
+  return visiblePosts(db, eq(posts.id, id)).get();
+}
+
+/**
+ * Up to `size` visible posts with an id below `before`, newest first (§7.2): a primary-key range scan.
+ * One extra row is read to tell whether older posts remain, so the last page has no `next`.
+ */
+export async function olderPosts(
+  db: Db,
+  before: number,
+  size: number,
+): Promise<{ posts: PostRow[]; more: boolean }> {
+  const rows = await visiblePosts(db, lt(posts.id, before))
+    .orderBy(desc(posts.id))
+    .limit(size + 1);
+  return { posts: rows.slice(0, size), more: rows.length > size };
 }
 
 export type DeletePostResult =

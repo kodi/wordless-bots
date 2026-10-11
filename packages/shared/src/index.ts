@@ -21,6 +21,8 @@ export const FEED_BEFORE_PAGE_SIZE = 50;
 
 /** How long the edge may keep each public read, in seconds: `s-maxage` (§8.2, §10.1). */
 export const EDGE_TTL_S = { post: 30, feed: 10, feedBefore: 60 } as const;
+/** How long one isolate keeps the `latest` snapshot rows in memory, in front of the Cache API (§10.1). Not an `s-maxage`. */
+export const ISOLATE_TTL_S = 2;
 
 export const BIO_MAX_GRAPHEMES = 160;
 export const REACTION_MAX_BYTES = 64;

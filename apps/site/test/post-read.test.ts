@@ -40,11 +40,12 @@ test("the reaction total and top come from the stored columns", async () => {
 
 test("a hidden post is 404 not_found", async () => {
   const { id } = await insertBot("reader_hidden");
-  const postId = await seedPost(id);
-  expect((await api(`/posts/${postId}`)).status).toBe(200);
+  const shown = await seedPost(id);
+  const hidden = await seedPost(id);
+  await writeDb(env).update(posts).set({ hidden: 1 }).where(eq(posts.id, hidden));
 
-  await writeDb(env).update(posts).set({ hidden: 1 }).where(eq(posts.id, postId));
-  const res = await api(`/posts/${postId}`);
+  expect((await api(`/posts/${shown}`)).status).toBe(200);
+  const res = await api(`/posts/${hidden}`);
   expect(res.status).toBe(404);
   expect(await res.json()).toMatchObject({ error: { code: "not_found" } });
 });

@@ -24,6 +24,14 @@ import { checkBio, checkContent } from "@wordless/wordfilter";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { requireBot } from "./auth.ts";
+import {
+  cachedResponse,
+  feedBeforeKey,
+  postKey,
+  purgePost,
+  readLatestCached,
+  rebuildAndPurgeLatest,
+} from "./cache.ts";
 import { storeCredentials } from "./credentials.ts";
 import {
   createBot,
@@ -38,7 +46,7 @@ import {
   writeDb,
   type Db,
 } from "./db/queries.ts";
-import { readLatest, rebuildLatest } from "./db/snapshots.ts";
+import { readLatest } from "./db/snapshots.ts";
 import { latestPage, type FeedPage } from "./feed.ts";
 import {
   apiError,
@@ -263,8 +271,10 @@ api.post("/posts", requireBot, async (c) => {
     });
   }
 
-  refreshLatest(c.executionCtx, c.env);
-  // TODO(§10.2): purge the local cache keys (latest, the author's profile, the post) in Slice 4.1.
+  // The new post has no cache entry of its own to purge: ids are never reused and a 404 is never kept.
+  // TODO(§10.2): the author's profile joins the purge in Slice 7.
+  const origin = new URL(c.req.url).origin;
+  refreshLatest(c.executionCtx, c.env, origin);
   const post = serializePost(
     {
       id: created.id,
@@ -274,7 +284,7 @@ api.post("/posts", requireBot, async (c) => {
       reactionTotal: 0,
       reactionTop: "[]",
     },
-    new URL(c.req.url).origin,
+    origin,
   );
   return c.json({ post }, 201);
 });
@@ -286,11 +296,16 @@ const postNotFound = (c: Context) =>
 
 api.get("/posts/:id", async (c) => {
   const id = parseId(c.req.param("id"));
-  const post = id === undefined ? undefined : await findPost(readDb(c.env), id);
-  if (post === undefined) return postNotFound(c);
+  if (id === undefined) return postNotFound(c);
 
-  publicCache(c, EDGE_TTL_S.post);
-  return c.json({ post: serializePost(post, new URL(c.req.url).origin) });
+  const origin = new URL(c.req.url).origin;
+  return cachedResponse(postKey(origin, id), async () => {
+    const post = await findPost(readDb(c.env), id);
+    if (post === undefined) return postNotFound(c);
+
+    publicCache(c, EDGE_TTL_S.post);
+    return c.json({ post: serializePost(post, origin) });
+  });
 });
 
 api.delete("/posts/:id", requireBot, async (c) => {
@@ -305,17 +320,22 @@ api.delete("/posts/:id", requireBot, async (c) => {
     });
   }
 
-  refreshLatest(c.executionCtx, c.env);
-  // TODO(§10.2): purge the local cache keys (latest, the author's profile, the post) in Slice 4.1.
+  const origin = new URL(c.req.url).origin;
+  refreshLatest(c.executionCtx, c.env, origin);
+  // The post's own entry has no rebuild to wait for, so it goes before the response: a read right after
+  // the 204 is a 404. `before` pages that hold the post can't be named, and run out their TTL (§10.2).
+  // TODO(§10.2): the author's profile joins the purge in Slice 7.
+  await purgePost(origin, id);
   return c.body(null, 204);
 });
 
 /**
- * Rebuilds the `latest` snapshot once the response is out (§7.1). If it fails, the feed stays stale until
- * the next post or delete (or the cron, Slice 6), which is within what §10.2 allows.
+ * Rebuilds the `latest` snapshot and then drops the local copies of the old one, once the response is
+ * out (§7.1, §10.2). If it fails, the feed stays stale until the next post or delete (or the cron,
+ * Slice 6), which is within what §10.2 allows.
  */
-function refreshLatest(ctx: Pick<ExecutionContext, "waitUntil">, env: Env): void {
-  ctx.waitUntil(rebuildLatest(writeDb(env)).catch((err) => console.error(err)));
+function refreshLatest(ctx: Pick<ExecutionContext, "waitUntil">, env: Env, origin: string): void {
+  ctx.waitUntil(rebuildAndPurgeLatest(writeDb(env), origin).catch((err) => console.error(err)));
 }
 
 // Only the params named here count. A malformed or out-of-range value is a 400, never clamped, so a bot
@@ -334,25 +354,33 @@ api.get("/feed", async (c) => {
   const query = readQuery(c, FeedQuery);
   if (query instanceof Response) return query;
   const { limit = FEED_DEFAULT_LIMIT, since, before } = query;
-
-  const db = readDb(c.env);
-  // `before` pages come from the posts table, always the same size; everything else from the snapshot.
-  const page: FeedPage =
-    before === undefined
-      ? latestPage(await readLatest(db), { limit, since })
-      : await olderPosts(db, before, FEED_BEFORE_PAGE_SIZE);
-
-  publicCache(c, before === undefined ? EDGE_TTL_S.feed : EDGE_TTL_S.feedBefore);
   const origin = new URL(c.req.url).origin;
-  const oldest = page.posts.at(-1);
-  return c.json({
-    posts: page.posts.map((post) => serializePost(post, origin)),
-    // The newest id here. With nothing newer than `since` that is `since` itself, so a bot that saves
-    // `cursor` as its next `since` never moves backwards; on an empty feed it is 0.
-    cursor: page.posts[0]?.id ?? since ?? 0,
-    next: page.more && oldest !== undefined ? `${origin}/api/v1/feed?before=${oldest.id}` : null,
-    ...(page.gap === undefined ? {} : { gap: page.gap }),
-  });
+
+  const respond = (page: FeedPage, edgeTtlS: number) => {
+    publicCache(c, edgeTtlS);
+    const oldest = page.posts.at(-1);
+    return c.json({
+      posts: page.posts.map((post) => serializePost(post, origin)),
+      // The newest id here. With nothing newer than `since` that is `since` itself, so a bot that saves
+      // `cursor` as its next `since` never moves backwards; on an empty feed it is 0.
+      cursor: page.posts[0]?.id ?? since ?? 0,
+      next: page.more && oldest !== undefined ? `${origin}/api/v1/feed?before=${oldest.id}` : null,
+      ...(page.gap === undefined ? {} : { gap: page.gap }),
+    });
+  };
+
+  // `before` pages come from the posts table, always the same size, so the response is cached whole.
+  if (before !== undefined) {
+    return cachedResponse(feedBeforeKey(origin, before), async () =>
+      respond(
+        await olderPosts(readDb(c.env), before, FEED_BEFORE_PAGE_SIZE),
+        EDGE_TTL_S.feedBefore,
+      ),
+    );
+  }
+  // Everything else is cut from the one cached snapshot, so `limit` and `since` never make an entry.
+  const snapshot = await readLatestCached(origin, () => readLatest(readDb(c.env)));
+  return respond(latestPage(snapshot, { limit, since }), EDGE_TTL_S.feed);
 });
 
 api.get("/me", requireBot, (c) => {

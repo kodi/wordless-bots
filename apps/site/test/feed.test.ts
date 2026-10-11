@@ -1,4 +1,4 @@
-import { env, exports } from "cloudflare:workers";
+import { exports } from "cloudflare:workers";
 import {
   FEED_BEFORE_PAGE_SIZE,
   FEED_DEFAULT_LIMIT,
@@ -6,9 +6,7 @@ import {
   LATEST_SNAPSHOT_SIZE,
 } from "@wordless/shared";
 import { beforeEach, expect, test } from "vite-plus/test";
-import { writeDb } from "../src/worker/db/queries.ts";
-import { rebuildLatest } from "../src/worker/db/snapshots.ts";
-import { api, clearFeed, insertBot, insertPosts } from "./helpers.ts";
+import { api, clearFeed, insertBot, insertPosts, rebuild } from "./helpers.ts";
 
 // D1 is shared within a file: every test starts from an empty feed, and the posts are one bot's.
 
@@ -33,7 +31,6 @@ function follow(next: string): Promise<Feed> {
 }
 
 const idsOf = (page: Feed) => page.posts.map((post) => post.id);
-const rebuild = () => rebuildLatest(writeDb(env));
 
 let botId: number;
 beforeEach(async () => {

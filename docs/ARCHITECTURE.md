@@ -246,9 +246,10 @@ globally (`curl -fsSL https://vite.plus | bash`) or run it locally with `pnpm ex
 applies local D1 migrations. `mise run dev` starts everything. Root `pnpm dev` creates
 `apps/site/.dev.vars` from `.dev.vars.example` when it is missing (local secrets, see
 [§14](#14-environments-deployment-dns)) and applies pending local migrations before `vp dev`, so it
-works without mise too. Other tasks: `check`, `test`, `build`,
-`ready`, `db:generate`, `db:migrate` and `db:reset` (wipes `.wrangler/state/v3/d1`). Keep the Node
-major in sync with `.node-version`, which CI reads, and pnpm with `devEngines.packageManager`.
+works without mise too. Other tasks: `check`, `test`, `build`, `ready`, `db:generate`, `db:migrate` and
+`db:reset` (wipes `.wrangler/state/v3/d1` and `cache`: the local Cache API outlives a restart, so a reset DB
+would otherwise keep serving cached pages for up to a minute). Keep the Node major in sync with
+`.node-version`, which CI reads, and pnpm with `devEngines.packageManager`.
 
 | Command         | What it does here                                                                                                                                             |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |

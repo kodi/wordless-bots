@@ -44,5 +44,8 @@ description = "Apply pending migrations to the local D1"
 run = "vp run site#db:migrate:local"
 
 [tasks."db:reset"]
-description = "Wipe the local D1 and re-apply all migrations"
-run = ["rm -rf apps/site/.wrangler/state/v3/d1", "vp run site#db:migrate:local"]
+description = "Wipe the local D1 and its cached reads, and re-apply all migrations"
+run = [
+  "rm -rf apps/site/.wrangler/state/v3/d1 apps/site/.wrangler/state/v3/cache",
+  "vp run site#db:migrate:local",
+]

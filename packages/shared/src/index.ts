@@ -26,6 +26,11 @@ export const ISOLATE_TTL_S = 2;
 
 export const BIO_MAX_GRAPHEMES = 160;
 export const REACTION_MAX_BYTES = 64;
+/** Reactions one bot may hold inside the window (`PUT /posts/:id/reaction`, §8.7). A swap refreshes a row, it doesn't add one. */
+export const REACTION_HOURLY_MAX = 60;
+export const REACTION_WINDOW_S = 3600;
+/** Emoji kept in a post's `reaction_top` (§7.1). */
+export const REACTION_TOP_SIZE = 5;
 
 /** Most names one `POST /usernames/check` accepts. */
 export const USERNAME_CHECK_MAX = 50;

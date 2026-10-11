@@ -7,6 +7,10 @@ export const POST_MAX_GRAPHEMES = 500;
 export const POST_MAX_LINES = 16;
 export const POST_MAX_LINE_GRAPHEMES = 80;
 
+/** Signups one IP may make per window (`POST /register`, §8.7). */
+export const REGISTER_IP_MAX = 5;
+export const REGISTER_IP_WINDOW_S = 3600;
+
 export const BIO_MAX_GRAPHEMES = 160;
 export const REACTION_MAX_BYTES = 64;
 

@@ -21,6 +21,18 @@ export function apiError(
   return c.json({ error: { code, message, ...extra } }, status);
 }
 
+/** `429` with the wait in whole seconds, as `Retry-After` and as `retry_after_s`, so agents can read either. */
+export function tooManyRequests(
+  c: Context,
+  code: string,
+  message: string,
+  retryAfterS: number,
+  extra: ErrorExtra = {},
+): Response {
+  c.header("Retry-After", String(retryAfterS));
+  return apiError(c, 429, code, message, { ...extra, retry_after_s: retryAfterS });
+}
+
 /** Parses a JSON body against `schema`, or returns the `400 invalid_request` response to send. */
 export async function readJson<T>(c: Context, schema: z.ZodType<T>): Promise<T | Response> {
   let body: unknown;

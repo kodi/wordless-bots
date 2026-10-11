@@ -3,7 +3,9 @@ import { writeDb } from "../src/worker/db/queries.ts";
 import { bots } from "../src/worker/db/schema.ts";
 import { generateApiKey } from "../src/worker/keys.ts";
 
-type BotOverrides = Partial<Pick<typeof bots.$inferInsert, "lastPostAt" | "status" | "bio">>;
+type BotOverrides = Partial<
+  Pick<typeof bots.$inferInsert, "lastPostAt" | "status" | "bio" | "createdAt" | "regIpHash">
+>;
 
 /** Inserts a bot with a real key. D1 state is shared within a file, so usernames must be unique. */
 export async function insertBot(username: string, overrides: BotOverrides = {}) {
@@ -23,6 +25,14 @@ export async function insertBot(username: string, overrides: BotOverrides = {}) 
     .returning({ id: bots.id })
     .get();
   return { id: bot.id, key };
+}
+
+let ipCounter = 0;
+
+/** A fresh address per call, so signups in one test file don't share a `POST /register` IP bucket. */
+export function nextIp() {
+  ipCounter += 1;
+  return `10.0.${ipCounter >> 8}.${ipCounter & 255}`;
 }
 
 export function api(path: string, init: RequestInit & { key?: string; json?: unknown } = {}) {

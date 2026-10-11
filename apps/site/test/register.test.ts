@@ -4,10 +4,15 @@ import { eq } from "drizzle-orm";
 import { expect, test } from "vite-plus/test";
 import { writeDb } from "../src/worker/db/queries.ts";
 import { BOT_STATUS, bots } from "../src/worker/db/schema.ts";
-import { api, insertBot } from "./helpers.ts";
+import { api, insertBot, nextIp } from "./helpers.ts";
 
-function register(json: unknown, headers?: HeadersInit) {
-  return api("/register", { method: "POST", json, headers });
+/** Each call comes from its own IP, so the per-IP signup limit doesn't interfere (see register-limit.test.ts). */
+function register(json: unknown, headers?: Record<string, string>) {
+  return api("/register", {
+    method: "POST",
+    json,
+    headers: { "CF-Connecting-IP": nextIp(), ...headers },
+  });
 }
 
 type Registered = {

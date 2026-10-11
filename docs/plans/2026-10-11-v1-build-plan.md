@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-11 (end of the `POST /register` session).
+Last updated: 2026-10-11 (end of the Slice 1 session: register rate limits).
 
 ## Summary
 
@@ -45,20 +45,26 @@ Merged on `main`:
 - #3 `packages/shared` username rules and limits, API keys, `requireBot` auth, `GET /health`,
   `POST /usernames/check`, `POST /validate`, `GET /me`.
 - `mise.toml` for one-command local setup.
+- #4 `POST /register` (squash-merged as `521914b`): `parseEmail()` in `packages/shared`, `createBot()`,
+  `hashIp()`, `storeCredentials()`, the `IP_HASH_SECRET` secret and `.dev.vars` flow.
 
-Open: **PR #4 `feat(api): add POST /register`** (branch `feat/register`). Check whether it merged
-before branching (see Next Slice). It adds `parseEmail()` in `packages/shared`, `createBot()`,
-`hashIp()`, `storeCredentials()`, the `IP_HASH_SECRET` secret and `.dev.vars` flow.
+Open: the Slice 1 PR `feat(api): rate limit POST /register per IP` (branch `feat/register-rate-limit`).
+It is not merged yet. Check with `git fetch origin && git log origin/main --oneline -3` before
+branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
 `ip-hash.ts`, `db/schema.ts`, `db/queries.ts`. Tests are in `apps/site/test/` with helpers
-`insertBot()` and `api()` in `helpers.ts`.
+`insertBot()` (accepts `lastPostAt`, `status`, `bio`, `createdAt`, `regIpHash`), `api()` and
+`nextIp()` in `helpers.ts`. `http.ts` has `apiError()`, `readJson()` and `tooManyRequests()`
+(`429` with `Retry-After` and `retry_after_s`; reuse it for `429 cooldown` and reaction limits).
 
-Baseline: `vp test` runs 601 tests (49 shared, 506 wordfilter, 46 worker).
+Baseline: `vp test` runs 606 tests (49 shared, 506 wordfilter, 51 worker) on the Slice 1 branch.
+On `main` before Slice 1 it was 601.
 
 Not built yet: posts, feed, top, reactions, profiles, key rotation, `PATCH /me`, recovery, email,
-admin, form fallback, snapshots, caching, cron, rate limits, agent docs (`/skill.md` etc.), all of
+admin, form fallback, snapshots, caching, cron, burst rate limits (the register hourly limit exists),
+agent docs (`/skill.md` etc.), all of
 the real UI, Analytics Engine events.
 
 Infra reality:
@@ -95,7 +101,8 @@ Infra reality:
 - Worker tests share one D1 per test file, so usernames and emails must be unique per test.
 - The Windows PowerShell snippet in `credentials.ts` was written from docs and never run on Windows.
 - `CF-Connecting-IP` may be absent under `vp dev`. `register` hashes a missing header as `"unknown"`.
-  Not yet checked whether the Vite plugin sets it. Slice 1 has to deal with this.
+  Not yet checked whether the Vite plugin sets it. Slice 1 has to deal with this. (Checked in Slice 1:
+  it is set to `127.0.0.1`; see the Slice 1 notes below.)
 - The scaffold SPA (React 19 + TanStack Router, hello world) was already **95 KB gzip**, over the
   old §9.3 budget of 80 KB. Resolved below: the budget is now 130 KB.
 
@@ -117,12 +124,66 @@ Infra reality:
   first. I confirmed with `wrangler secret list` for both environments. Prod needs `--env=""` to
   avoid a "multiple environments" warning.
 
+### 2026-10-11, Slice 1 session (register rate limits)
+
+Done on branch `feat/register-rate-limit`, branched from `main` at `521914b`. Not merged yet.
+
+- Design: the hourly limit is **atomic**. `createBot()` runs one `INSERT ... SELECT ... WHERE (SELECT
+  COUNT(*) ... reg_ip_hash = ? AND created_at > ?) < ? RETURNING id` (ARCHITECTURE §7.1, like the post
+  cooldown). No row means `ip_limit`. The handler then calls `ipSignups()` (count + oldest
+  `created_at`) only to compute `retry_after_s`. I chose this over count-then-insert because a
+  non-atomic check is not "a little" off: see the mutation below.
+- Constants `REGISTER_IP_MAX = 5` and `REGISTER_IP_WINDOW_S = 3600` live in `packages/shared`.
+  (The earlier plan text called it `REGISTER_MAX_PER_IP_PER_HOUR`.)
+- `CreateBotResult` now has `reason: "username" | "email" | "ip_limit"` (it was `conflict`).
+- Only successful signups count, so `422`/`409` responses use up no quota.
+- `retry_after_s` is `ceil((oldest + window - now) / 1000)`, at least 1. If the window emptied between
+  the refused insert and the follow-up query, it is 1.
+- Tests: `test/register-limit.test.ts` (5 new tests, fixed IPs, own D1). `register.test.ts` now sends
+  a distinct `CF-Connecting-IP` per call via `nextIp()`.
+
+Verified (all run from the repo root):
+
+- `vp check`: clean (38 files, all 58 formatted).
+- `vp test`: 15 files, **606 passed** (601 baseline + 5 new).
+- `vp run -r build`: passed (SPA 94.96 kB gzip).
+- Mutation checks (each reverted afterwards, then `vp test apps/site/test/register` green):
+  - `<` to `<=` in the insert: 4 of 5 limit tests fail.
+  - Drop the window filter (`gt(createdAt, 0 * since)`): "signups older than the window don't count"
+    fails.
+  - `retry_after_s` = whole window instead of oldest + window: "the wait ends when the oldest signup
+    ages out" fails.
+  - Count-then-insert instead of the atomic insert: the parallel test fails with **15 of 15 requests
+    getting `201`** (limit 5), so the race is wide open without the atomic form.
+- Live check on a second dev server (`vp dev --port 5174 --strictPort`, stopped afterwards; the
+  server on :5173 was left alone): with no header, signups 1 to 5 were `201` and the 6th `429` with
+  `retry-after: 3600` and the `rate_limited` body. Six signups with distinct `CF-Connecting-IP`
+  headers were all `201`. The probe bots were deleted from the local D1 afterwards (it was empty before).
+
+Findings:
+
+- **Under `vp dev` the header is not missing.** The stored `reg_ip_hash` matches HMAC(secret,
+  `"127.0.0.1"`), so the Vite plugin sets `CF-Connecting-IP: 127.0.0.1`. A header sent by the client
+  passes through. Effect: all local signups share one bucket and the 6th in an hour is a `429`. Workaround:
+  send your own `CF-Connecting-IP` with `curl`, or `mise run db:reset`. Documented in README and
+  ARCHITECTURE §8.7. `"unknown"` now only happens when the header is absent (the Worker tests, if a
+  test sends none); Cloudflare always sets it in production.
+- D1 serializes writes, so one `INSERT ... WHERE (count) < n` is atomic. Locally (miniflare) the
+  parallel test confirms it, but this has not been run against remote D1.
+- `INSERT ... RETURNING` through drizzle's `db.get(sql)` returns the row, or `undefined` when the
+  `WHERE` filtered everything out. Embedding a Drizzle select inside `sql` shares the window predicate
+  (`botsFromIp`) between the insert guard and `ipSignups()`.
+- The raw insert lists the `bots` columns by hand. A new `NOT NULL` column without a default breaks
+  it, and every register test would fail, so drift is caught.
+- Not touched, as instructed: `wrangler.jsonc`, tests-in-CI.
+
 ## Open Questions
 
 Ask the user rather than assuming:
 
-1. **Rate Limiting binding** (`ratelimits` in `wrangler.jsonc`): approved? The `TODO(§8.7)`
-   comments in `api.ts` have been waiting on this. Blocks Slice 1.1 only.
+1. **Rate Limiting binding** (`ratelimits` in `wrangler.jsonc`): approved? Three `TODO(§8.7)`
+   comments in `api.ts` (register 3/min, `/usernames/check`, `/validate`) are waiting on this.
+   Blocks Slice 1.1 only.
 2. **Cloudflare Email Service** (ARCHITECTURE §19.1): sending is enabled, but the user must add the
    DNS records (or provide a DNS-edit token) and confirm Workers Paid. Also confirm the `send_email`
    binding. Blocks Slice 9. Fallback is Resend behind the same `EmailSender` interface.
@@ -138,7 +199,7 @@ Status legend: `[ ]` not started, `[-]` in progress, `[x]` done (verified).
 
 ### Slice 0: `POST /register`
 
-Status: `[x]` Done and verified, PR #4 open (not yet merged).
+Status: `[x]` Done and verified. Merged as `521914b` (PR #4).
 
 Verification: see Working Notes 2026-10-11.
 
@@ -155,16 +216,18 @@ Status: `[ ]` Deferred by the user on 2026-10-11 ("test in ci later"). Don't sta
 - Verification: the PR's own checks run all three and pass. Update §14 ("No tests") in the same PR.
 - Dependencies: none.
 
-### Slice 1: register rate limits, hourly window in D1 (NEXT)
+### Slice 1: register rate limits, hourly window in D1
 
-Status: `[ ]`
+Status: `[x]` Done and verified on `feat/register-rate-limit` (PR pending). See Working Notes
+2026-10-11, Slice 1 session. The implementation differs from the sketch below in one way: the check is
+an atomic conditional insert (the plan's second option), not a count before the insert.
 
 - Goal: at most 5 registrations per IP per hour (§8.7), answered with `429 rate_limited` and a
   `Retry-After` header.
 - Why here: it finishes `/register`. It needs no new infra: the `bots_reg_ip(reg_ip_hash,
   created_at)` index already exists.
 - Implement:
-  - Add `REGISTER_MAX_PER_IP_PER_HOUR = 5` and the one-hour window to `packages/shared/src/index.ts`
+  - Add `REGISTER_IP_MAX = 5` and `REGISTER_IP_WINDOW_S = 3600`, the one-hour window, to `packages/shared/src/index.ts`
     (named constants, not literals in the route).
   - In `db/queries.ts`, add one query that returns the count and the oldest `created_at` for an
     `reg_ip_hash` since `now - window`.
@@ -191,7 +254,7 @@ Status: `[ ]`
   `Retry-After` and `retry_after_s`; another IP is unaffected; rows older than the window don't
   count; rejected requests (`422`/`409`) don't count. Mutation check: change `<` to `<=` or drop the
   window filter and watch a test fail.
-- Dependencies: PR #4 merged (or branch from `feat/register`).
+- Dependencies: PR #4 merged (done).
 
 ### Slice 1.1: burst limits with the Rate Limiting binding
 
@@ -202,7 +265,12 @@ Status: `[ ]` Blocked on Open Question 1.
   10/min/IP, `/validate` 30/min per key (bot id) or IP. Remove the three `TODO(§8.7)` comments.
 - First prove the binding is simulated inside `@cloudflare/vitest-plugin` tests. If it isn't,
   decide with the user how to test it.
-- Never put a raw IP in a limiter key: use the hex of `hashIp()`.
+- Never put a raw IP in a limiter key: use the hex of `hashIp()`. The `/register` handler computes
+  that hash inline (`CF-Connecting-IP`, else `"unknown"`); extract a small `clientIpHash(c)` helper
+  when a second caller appears, so the limiter key and `reg_ip_hash` can't diverge.
+- The register burst check can run before `readJson` (cheapest first). It must not change the hourly
+  logic in `createBot()`.
+- Locally every request is `127.0.0.1`, so a 3/min limit will also trip during manual testing.
 - Document the bindings in §14 and run `pnpm --filter site cf-typegen`.
 
 ### Slice 2: `POST /posts`
@@ -217,7 +285,8 @@ Status: `[ ]`
     means `429 cooldown`.
   - Route: `checkContent` with the `POST_MAX_*` limits (as `/validate` does), store the canonical
     content. Errors: `422` with the filter's code, `matches`, `hint`. A rejected post must not touch
-    the cooldown. `429 cooldown {next_post_at, retry_after_s}` plus `Retry-After`.
+    the cooldown. `429 cooldown {next_post_at, retry_after_s}` plus `Retry-After`: use `tooManyRequests()` from
+    `http.ts` with `next_post_at` as `extra`.
   - A `serializePost()` helper for the §8.1 post object (id, author, content, ISO `created_at`,
     `reactions {total, top}`, `url`). Slices 3 to 7 reuse it.
   - Leave `TODO(§7.1)` for "rebuild `latest` snapshot and purge cache keys"; Slice 4 wires it.
@@ -269,7 +338,7 @@ Status: `[ ]`
 Status: `[ ]`
 
 - `PUT` and `DELETE /posts/:id/reaction`: `checkReaction`, `403 self_reaction`, `404`,
-  `429 rate_limited`. §8.4 says `422 invalid_emoji`, but `checkReaction` returns its own codes
+  `429 rate_limited` (via `tooManyRequests()`). §8.4 says `422 invalid_emoji`, but `checkReaction` returns its own codes
   (`contains_words`, `invalid_characters`, `empty`, `too_long`). Decide the mapping and fix whichever
   side is wrong in the same PR.
 - The §7.1 batch: upsert, recompute `reaction_total` and `reaction_top`, adjust `reactions_received`
@@ -364,22 +433,27 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 1: register rate limits (hourly window in D1).** Slice A (tests in CI) is deferred by the
-user. `AGENTS.md` is deliberately unchanged, so the user will point you at this file.
+**Slice 2: `POST /posts`.** Slice A (tests in CI) is deferred by the user and Slice 1.1 waits on the
+Rate Limiting binding (Open Question 1), so the core write comes next. `AGENTS.md` is deliberately
+unchanged, so the user will point you at this file.
 
 Start here:
 
-1. `git fetch origin`. If PR #4 is merged: `git switch main && git pull`. If not, and the user wants
-   to continue anyway, branch from `feat/register`. Don't use the `gh` API heavily: its hourly rate
-   limit was exhausted at the end of the last session, and `git` over SSH is unaffected.
-2. Read `AGENTS.md`, then ARCHITECTURE §7.1, §8.3 and §8.7, then the register handler in
-   `apps/site/src/worker/api.ts` (the `TODO(§8.7)` above `api.post("/register")`).
-3. `mise run dev` (or `pnpm install && pnpm dev`) only if you need a live server. Check port 5173
-   first. Baseline before you change anything: `vp test` should report 601 passing.
-4. Follow the Slice 1 section above. Its first two edits are the shared constants and the count
-   query in `db/queries.ts`; then update the `register()` helper in `test/register.test.ts` to send
-   a distinct `CF-Connecting-IP` before adding the limit tests.
-5. Ask the user before touching `wrangler.jsonc` bindings (Slice 1.1 needs Open Question 1 answered).
-6. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE §8.3/§8.7 match the code,
-   this file's Slice 1 is `[x]` with the exact commands recorded under Working Notes, and `Next
-   Slice` points at the following task.
+1. `git fetch origin`. If the Slice 1 PR (`feat/register-rate-limit`) is merged:
+   `git switch main && git pull`, then `git switch -c feat/post-create`. If it is not merged and the
+   user wants to continue anyway, branch from `feat/register-rate-limit`. Don't use the `gh` API
+   heavily if it is rate limited; `git` over SSH is unaffected.
+2. Read `AGENTS.md`, then ARCHITECTURE §7.1 (create post), §8.1 (post object), §8.4 and §8.7, then
+   `apps/site/src/worker/api.ts` (`/validate` shows how `checkContent` is called and `/me` the cooldown
+   fields), `db/queries.ts` (`createBot()` is the pattern for an atomic conditional insert) and
+   `http.ts` (`tooManyRequests()`).
+3. `vp test` should report 606 passing before you change anything (601 if you branch from a `main`
+   that doesn't have Slice 1). Use `mise run dev` only if you need a live server; check port 5173
+   first (`lsof -ti :5173`), because one may already be running, and never kill a server you didn't
+   start. Locally every request comes from `127.0.0.1` (see the Slice 1 findings).
+4. Follow the Slice 2 section above. Test helpers: `insertBot(username, { lastPostAt, ... })` returns
+   `{ id, key }`; `api(path, { key, json })`.
+5. Ask the user before touching `wrangler.jsonc` bindings.
+6. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this
+   file's Slice 2 is `[x]` with the exact commands under Working Notes, and `Next Slice` points at
+   Slice 3.

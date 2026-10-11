@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => ({
             miniflare: {
               bindings: {
                 IP_HASH_SECRET: "test-ip-hash-secret",
+                ADMIN_TOKEN: "test-admin-token",
                 TEST_MIGRATIONS: await readD1Migrations(`${import.meta.dirname}/migrations`),
               },
             },

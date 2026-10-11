@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { admin } from "./admin.ts";
 import { api } from "./api.ts";
 import { avatarResponse } from "./avatar.ts";
 import { runScheduled } from "./cron.ts";
@@ -14,6 +15,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.route("/api/v1", api);
+app.route("/api/admin", admin);
 app.get("/a/:file", avatarResponse);
 app.get("/llms.txt", agentDocResponse("llms.txt"));
 app.get("/skill.md", agentDocResponse("skill.md"));

@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-12 (end of the Slice 10 session: agent docs).
+Last updated: 2026-10-12 (end of the Slice 11 session: admin endpoints and CLI).
 
 ## Summary
 
@@ -73,12 +73,15 @@ Merged on `main`:
 - #14 Slice 9 key recovery and email (merged as `c8ddbf0`): `POST /recover`, `POST /recover/confirm`, `EmailSender`, the `EMAIL`
   binding, `issueRecoveryToken()`, `recoverKey()`.
 
-- Slice 10 agent docs is on `feat/agent-docs` (PR #15, in review): `/llms.txt`, `/skill.md`, `/heartbeat.md`, `agent-docs.ts`, `docsUrl()`.
+- #15 Slice 10 agent docs (merged as `3060753`): `/llms.txt`, `/skill.md`, `/heartbeat.md`, `agent-docs.ts`, `docsUrl()`.
 
-Open: the Slice 10 PR (#15, `feat/agent-docs`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+- Slice 11 admin endpoints and CLI is on `feat/admin` (PR #16, in review): `/api/admin/*`, `requireAdmin`, `db/admin.ts`,
+  `scripts/admin.ts` (`pnpm admin`), `ADMIN_TOKEN` in `secrets.required`.
+
+Open: the Slice 11 PR (#16). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
-`api.ts` (all `/api/v1` routes so far, and `sendRecovery()`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
+`api.ts` (all `/api/v1` routes so far, and `sendRecovery()`), `admin.ts` (the `/api/admin` routes), `auth.ts` (`requireBot`, `requireAdmin`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
 `agent-docs.ts` (`renderDoc()`, `renderAgentDoc()`, `agentDocResponse()`; the templates are in `agent-docs/`), `ip-hash.ts` (`keys.ts` also has `generateRecoveryToken()` and `hashRecoveryToken()`), `serialize.ts` (`iso()`, `serializePost()`, `serializeReactions()`, `serializeProfile()`), `feed.ts` (`latestPage()`, the pure paging
 and gap rules), `cache.ts` (L0 and L1: `readLatestCached()`, `cachedResponse()`, `purgeLatest()`,
 `purgePost()`, `purgeProfile()`, `rebuildAndPurgeLatest()` and the `latestKey()`, `feedBeforeKey()`, `postKey()`, `topKey()`,
@@ -87,10 +90,10 @@ and gap rules), `cache.ts` (L0 and L1: `readLatestCached()`, `cachedResponse()`,
 `deletePost()`, `rotateKey()`, `setBio()`, `issueRecoveryToken()`, `dropRecoveryToken()`, `recoverKey()`, `reactToPost()`, `unreactToPost()`, `visiblePosts()`, `olderPosts()`, `findBotProfile()`, `botPosts()`,
 `botPostsQuery()`, `PostRow`, `postRowColumns`),
 `db/snapshots.ts` (`rebuildLatest()`, `readLatest()`, `rebuildTop24()`, `readTop()`, `topPosts()`, `snapshotAges()`) and
-`db/maintenance.ts` (`deleteStaleRecoveryTokens()`, `reconcileBotCounters()`).
+`db/maintenance.ts` (`deleteStaleRecoveryTokens()`, `reconcileBotCounters()`) and `db/admin.ts` (`adminDeletePost()`, `banBot()`, `unbanBot()`, `adminRotateKey()`).
 Tests are in `apps/site/test/` with helpers `insertBot()` (accepts `lastPostAt`, `status`, `bio`,
 `createdAt`, `regIpHash`), `seedPost()` (a post through `createPost()` with no cooldown wait),
-`insertPosts()` (bulk insert, no counters; use it to fill a feed), `insertToken()` (a recovery token row; returns the raw token), `fakeEmail()` (an `EmailSender` that keeps what it sent) and `tokenIn()` (the token in a mail's link), `clearFeed()` (also purges the cached
+`insertPosts()` (bulk insert, no counters; use it to fill a feed), `insertToken()` (a recovery token row; returns the raw token), `fakeEmail()` (an `EmailSender` that keeps what it sent) and `tokenIn()` (the token in a mail's link), `adminApi()` (a call to `/api/admin/*` with the test token, or `token: null` for none), `clearFeed()` (also purges the cached
 snapshot and the cached `/top`: isolate memory and the Cache API outlive a test), `rebuild()` (what a post or delete does after
 its response: rebuild `latest`, then purge; use it instead of calling `rebuildLatest()` and then reading),
 `lateDb()` (a `Db` whose answers arrive late; for stale-write races), `gatedDb()` (a `Db` whose statements
@@ -103,11 +106,11 @@ reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsern
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 861 tests (57 shared, 506 wordfilter, 298 worker) on the Slice 10 branch; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
+Baseline: `vp test` runs 879 tests (57 shared, 506 wordfilter, 316 worker) on the Slice 11 branch; 861 (298 worker) on `main` at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
 `fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
-Not built yet: admin, form
+Not built yet: form
 fallback, burst rate limits (the register hourly limit exists), all of the real UI,
 Analytics Engine events.
 
@@ -117,7 +120,7 @@ Infra reality:
   placeholders that `wrangler secret put` created, and **`IP_HASH_SECRET` is set on both** (the user
   ran it on 2026-10-11; `wrangler secret list` shows it for prod with `--env=""` and for `--env
   staging`). Later secrets follow ARCHITECTURE §14.
-- `wrangler.jsonc` has `DB`, `ASSETS`, `EMAIL` (`send_email`, since Slice 9, approved by the user on 2026-10-11, top level and `env.staging`), the `secrets.required` list, observability and (since Slice 6, approved by
+- `wrangler.jsonc` has `DB`, `ASSETS`, `EMAIL` (`send_email`, since Slice 9, approved by the user on 2026-10-11, top level and `env.staging`), the `secrets.required` list (`IP_HASH_SECRET` and, since Slice 11, `ADMIN_TOKEN`; the Cloudflare copy of `ADMIN_TOKEN` is not set yet), observability and (since Slice 6, approved by
   the user on 2026-10-11) `triggers.crons: ["* * * * *"]` at the top level and in `env.staging`. No `ratelimits` or
   `analytics_engine_datasets`.
 - CI runs only `vp check`. **Tests and build are not in CI** (§14 says the PR pipeline should be
@@ -993,7 +996,7 @@ Findings:
 
 ### 2026-10-12, Slice 10 session (agent docs)
 
-Done on branch `feat/agent-docs`, branched from `main` at `c8ddbf0`. The first commit fixed the stale Slice 9 statuses and the baseline. No binding,
+Done on branch `feat/agent-docs` (merged as `3060753`, #15), branched from `main` at `c8ddbf0`. The first commit fixed the stale Slice 9 statuses and the baseline. No binding,
 no dependency, no migration and no new var.
 
 - Design:
@@ -1058,6 +1061,69 @@ Findings and mistakes:
   also documents `POST /recover/confirm` with the token from the link for owners who can't use it.
 - Not changed, as instructed: the Rate Limiting binding (Slice 1.1), tests in CI (Slice A), `/top` purging, DNS, any Cloudflare secret or binding.
 
+### 2026-10-12, Slice 11 session (admin endpoints and CLI)
+
+Done on branch `feat/admin`, branched from `main` at `3060753`. The first commit fixed the stale Slice 10 statuses and the baseline. New: `admin.ts`,
+`db/admin.ts`, `scripts/admin.ts`, `test/admin.test.ts`, `requireAdmin` and `sameSecret()`. No dependency, no migration, no binding. `ADMIN_TOKEN` joined
+`secrets.required` (top level and `env.staging`) and `.dev.vars.example`; `pnpm --filter site cf-typegen` regenerated `Env`; the test token is bound in
+`apps/site/vite.config.ts`. Nothing was pushed to Cloudflare, and the Doppler values were never read (tests and the live check use throwaway tokens).
+
+- Design:
+  - **Auth** is a middleware on the whole sub-app (`admin.use("*", requireAdmin)`), so it runs before the 404 of an unknown path. Both sides are hashed with
+    SHA-256 and compared with `crypto.subtle.timingSafeEqual`. No configured token is `503 admin_unavailable`. `Cache-Control: private, no-store` is set
+    first, so the 401s carry it too.
+  - **`X-Wordless-Docs` is left on admin responses** (the `/api/*` middleware covers them). It points a bot that wandered in at `skill.md`, and §8.1 says every API
+    response has it. The `index.ts` 404 handler gives `/api/admin/nope` the normal JSON `not_found` (after auth).
+  - **Ban** is one batch: `status = 1`, then hide the bot's visible posts. `post_count` is untouched. The route rebuilds `latest` and `top24` (so a banned bot's
+    reacted post leaves the stored `top24` too), drops the cached `latest`, then the profile. **Unban** is the same batch reversed: unhide the posts of a bot that is
+    _still banned_, then set `status = 0`. Today only a ban hides posts, so every hidden post of a banned bot is the ban's. Revisit if a per-post hide appears
+    (this also closes the note in Slice 3 about hidden posts). An unban purges the profile of nobody: a banned bot's profile is a 404 and 404s are never cached.
+  - **Rebuilds are awaited**, not `waitUntil`, so the operator sees a failure as a `500`; the DB change has already committed and every action can be repeated.
+  - **Delete** reuses `deletePost()` for the author it looks up. The post's own cache entry and the author's profile are dropped; a hidden post can be deleted.
+  - **Rotate** has no old key to guard on, so the guard is "the bot exists and is active". A banned bot is `409 banned`. The key is in that response only.
+  - **CLI**: Node 24 runs `scripts/admin.ts` directly (`"admin": "node scripts/admin.ts"` in the root `package.json`), `parseArgs` from `node:util`, no dependency. The
+    token is read from `ADMIN_TOKEN` only. `--url`/`WORDLESS_URL` defaults to `http://localhost:5173`, never a real host. It refuses non-https (except localhost)
+    and redirects. `rotate-key` prints the key alone on stdout and the warning on stderr. `vp run admin -- <args>` works too (the leading `--` is dropped).
+- Not purged, and documented (§8.5, §10.2): `/posts/:id` entries of a banned bot (30 s), the cached `/top` (60 s), other colos, `before` pages. `/top` purging was
+  out of scope.
+- Tests (18 new, 861 to 879): `test/admin.test.ts`. Auth (5 endpoints x missing, wrong, one character short, token plus a suffix, a bot's key; token in the query
+  string; unknown path 401 vs 404; no configured token is 503), ban (feed, profile cache warmed first, post page, key 403, counters, `top24`; unknown and malformed
+  names; twice), unban (restores, old key works; an active bot's hidden posts stay hidden), delete (cache and counters and cooldown; a hidden post; bad ids), rotate
+  (old key dies, prefix updated; banned is 409 and the old key still works after an unban; unknown 404), rebuild (both snapshots).
+- Not unit-tested: `scripts/admin.ts` (the test project runs in workerd; a Node test project would be new config). Checked live instead, below.
+
+Verified (all from the repo root):
+
+- `vp check --no-fmt`: clean (71 files). `vp fmt` run on `scripts`, `apps/site/src/worker`, `apps/site/test`, `docs/plans`, `docs/ARCHITECTURE.md`, `package.json` and
+  `apps/site/vite.config.ts` only (plain `vp check` still fails on the user's `docs/design/`; left alone).
+- `vp test`: 32 files, **879 passed** (861 + 18).
+- `vp run -r build`: passed (Worker 118.80 kB gzip, up from 115.82; SPA 94.96 kB gzip).
+- Mutation checks, each reverted, `vp test apps/site/test/admin.test.ts` per mutant (script in the job tmp dir: back up, mutate, run, restore): 16 of 16 caught after
+  one fix. Auth compare removed (5 failing), `sameSecret` as a prefix match (5), token read from the query string (1), the ban's hide inverted (4), only `latest`
+  rebuilt (2), `latest` not purged after the rebuild (3), no profile purge on a ban (1), unban without the "still banned" filter (1), status set the wrong way (3),
+  the unban batch reordered, status first (1), rotate without the active guard (1), delete without
+  `deletePost()` (2), no `purgePost` (1), no profile purge on delete (1), prefix not stored (1), `Cache-Control` stripped from admin responses (1). **The first run of
+  the "only `latest` rebuilt" mutant survived**: `readTop()` falls back to a live query when `top24` has no row, so my assertion passed without a rebuild. The tests now
+  read the stored `top24` row directly (`top24Ids()`).
+- Live check on my own dev server (`cd apps/site && vp dev --port 5174 --strictPort`, stopped by pid; the user's :5173, pid 53728, was left alone) with the throwaway
+  `ADMIN_TOKEN` from `.dev.vars.example` (I appended it to the gitignored `.dev.vars`): two bots registered and posted with curl; `pnpm admin ban` removed the bot's
+  post from `/feed`, made its profile 404 and its key 403; `unban` restored all three; `rotate-key` killed the old key and the new one worked; `delete-post` and `rebuild`
+  worked; unknown bot (`404 not_found`), wrong token (`401 invalid_admin_token`), no `ADMIN_TOKEN`, an `http://example.com` target and no command all failed with a clear
+  message and exit 1. Raw `curl -i`: `cache-control: private, no-store` and `x-wordless-docs` on the 200, and `401 missing_admin_token` for an unknown admin path.
+  Cleanup: `admprobe_%` bots, their posts, reactions and tokens, and the snapshot row that held a probe post, removed from the local D1 with scoped `WHERE` statements.
+
+Findings and mistakes:
+
+- `test.each` over five endpoints inserted the same bot five times (unique `email_norm`); the bot now comes from a `beforeAll`.
+- My first ban test warmed `/posts/:id` and expected 404 after the ban. A ban doesn't purge post pages (it can't name them all), so that was the TTL, not a bug; the
+  test now reads an unwarmed post page and the doc says what isn't purged.
+- `JSON.stringify(botRow)` contains `wl_` because `keyPrefix` is stored. That assertion was useless and was dropped.
+- `vp run admin -- --help` passes the `--` through; `parseArgs` would treat the rest as positional, so the CLI drops a leading `--`.
+- Not changed, as instructed: the Rate Limiting binding (Slice 1.1), tests in CI (Slice A), `/top` purging, DNS, Workers Paid, any Cloudflare secret, and the agent docs
+  (admin endpoints are not for bots, so `skill.md` doesn't mention them).
+- Carried: Workers Paid unverified (Open Question 2); `wrangler whoami` shows account `9c3a154e…`, which differs from `132abfb8…` in this file; Slice 14 keeps the
+  leftover DNS records and the rule that Worker routes must be exact hostnames.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -1072,7 +1138,7 @@ Ask the user rather than assuming:
    second, unverified address. The fallback is Resend behind the same `EmailSender` interface; switching needs the user's go-ahead.
 3. ~~JS budget vs React~~ Resolved 2026-10-11: React stays, budget is 130 KB gzip.
 4. **First deploy** of staging and prod (Slice 14), and who sets any new remote secrets. `IP_HASH_SECRET` is already set on both.
-   `ADMIN_TOKEN` is generated and in Doppler (`wordless`, `stg` and `prd`, 2026-10-12) but **not yet a Cloudflare secret**; ask before `wrangler secret put`.
+   `ADMIN_TOKEN` is generated and in Doppler (`wordless`, `stg` and `prd`, 2026-10-12) and listed in `secrets.required` (Slice 11), but **not yet a Cloudflare secret**; ask before `wrangler secret put`.
 5. ~~Cron triggers~~ Resolved 2026-10-11: the user approved `triggers.crons: ["* * * * *"]` (Slice 6).
 6. ~~What `cursor` is when the feed is empty.~~ Resolved in Slice 4: it echoes the caller's `since`, or
    `0` with none (ARCHITECTURE §8.1).
@@ -1299,7 +1365,7 @@ pointed at `/recover` with no caveat).
 
 ### Slice 10: agent docs
 
-Status: `[x]` Done and verified on `feat/agent-docs` (PR #15, in review). See Working Notes 2026-10-12, Slice 10 session. Differences from the
+Status: `[x]` Done and verified, merged as `3060753` (#15). See Working Notes 2026-10-12, Slice 10 session. Differences from the
 sketch below: the templates live in `src/worker/agent-docs/` (bundled with `?raw`), not in `public/`; the limits they quote are placeholders
 filled from `packages/shared`; `DOCS_URL` became `docsUrl(origin)` (no new var).
 
@@ -1309,7 +1375,7 @@ filled from `packages/shared`; `DOCS_URL` became `docsUrl(origin)` (no new var).
 
 ### Slice 11: admin endpoints and CLI
 
-Status: `[ ]`
+Status: `[x]` Done and verified on `feat/admin`. See Working Notes 2026-10-12, Slice 11 session.
 
 - `/api/admin/*` with `ADMIN_TOKEN` (add it to `secrets.required` and `.dev.vars.example`) and
   `scripts/admin.ts`. Ban hides all of the bot's posts and rebuilds snapshots.
@@ -1365,17 +1431,16 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 11: admin endpoints and CLI.** It is unblocked: the user approved `ADMIN_TOKEN` on 2026-10-12 and the values already sit in Doppler (see the
-Slice 11 section for where and how to read them). Add it to `secrets.required` (top level and `env.staging`) and `.dev.vars.example`, but ask
-before running `wrangler secret put`. Slice 12 (form fallback) is also unblocked. Slice A (tests in CI) is still deferred by the user and Slice 1.1
-still waits on the Rate Limiting binding (Open Question 1). Workers Paid is unverified (Open Question 2); it matters for production recovery mail.
-`AGENTS.md` is deliberately unchanged, so the user will point you at this file.
+**Slice 12: form fallback** (ARCHITECTURE §8.6): form-encoded writes with `api_key` in the body, and the no-JS `GET /act` page. Never accept keys in URLs.
+It must also update `skill.md` and `heartbeat.md`, which say the fallback "is not available yet" (see the Slice 12 section), and ARCHITECTURE §11.
+Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the Rate Limiting binding (Open Question 1). Workers Paid is
+unverified (Open Question 2); it matters for production recovery mail. `AGENTS.md` is deliberately unchanged, so the user will point you at this file.
 
-Start here (Slice 11):
+Start here (Slice 12):
 
-1. `git fetch origin && git switch main && git pull`, then branch. Slice 10 should be merged by then; check with `git log origin/main --oneline -3`.
-2. Read `AGENTS.md`, the Cross-slice rules, the Slice 10 Working Notes, the Slice 11 section above, and ARCHITECTURE §8.5, §13, §7.1 (ban) and §6.2.
-3. `vp test` should report 861 passing before you change anything.
+1. `git fetch origin && git switch main && git pull`, then branch. Slice 11 should be merged by then; check with `git log origin/main --oneline -3`.
+2. Read `AGENTS.md`, the Cross-slice rules, the Slice 11 Working Notes, the Slice 12 section above, and ARCHITECTURE §8.6, §11 and §6.2.
+3. `vp test` should report 879 passing before you change anything (if Slice 11 is merged).
 4. Done when `vp check --no-fmt`, `vp test` and `vp run -r build` pass (plain `vp check` fails on the untracked `docs/design/` files until the user
-   formats or commits them), ARCHITECTURE matches the code, this file's Slice 11 is `[x]` with the exact commands under Working Notes, and `Next Slice`
-   points at Slice 12.
+   formats or commits them), ARCHITECTURE matches the code, this file's Slice 12 is `[x]` with the exact commands under Working Notes, and `Next Slice`
+   points at Slice 13a.

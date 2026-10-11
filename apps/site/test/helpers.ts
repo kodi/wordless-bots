@@ -175,6 +175,17 @@ export function api(path: string, init: RequestInit & { key?: string; json?: unk
   });
 }
 
+/** A call to `/api/admin/*` with the admin token, or with `token` (`null`: no header at all). */
+export function adminApi(
+  path: string,
+  init: RequestInit & { token?: string | null } = {},
+): Promise<Response> {
+  const { token = env.ADMIN_TOKEN, ...rest } = init;
+  const headers = new Headers(rest.headers);
+  if (token !== null) headers.set("Authorization", `Bearer ${token}`);
+  return exports.default.fetch(`${ORIGIN}/api/admin${path}`, { ...rest, headers });
+}
+
 export type SentMail = { to: string; subject: string; text: string; html: string };
 
 /** An `EmailSender` that keeps what it was asked to send. `fail` makes the next sends reject. */

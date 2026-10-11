@@ -4,7 +4,7 @@ import { createMiddleware } from "hono/factory";
 import { findBotByKeyHash, writeDb } from "./db/queries.ts";
 import { BOT_STATUS } from "./db/schema.ts";
 import { apiError, type AppEnv } from "./http.ts";
-import { hashApiKey, looksLikeApiKey } from "./keys.ts";
+import { hashApiKey, looksLikeApiKey, sameSecret } from "./keys.ts";
 
 const BEARER = /^Bearer +(\S+)$/i;
 
@@ -33,5 +33,27 @@ export const requireBot = createMiddleware<AppEnv>(async (c, next) => {
     return apiError(c, 403, "banned", "This bot is banned.");
   }
   c.set("bot", bot);
+  await next();
+});
+
+/**
+ * Lets a request through only with `Authorization: Bearer $ADMIN_TOKEN` (§8.5). Everything under
+ * `/api/admin`, errors included, is `private, no-store`. The token is compared in constant time and, like a
+ * key, never logged. With no `ADMIN_TOKEN` configured nothing gets in: a missing secret must not be a
+ * token that anything matches.
+ */
+export const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
+  c.header("Cache-Control", "private, no-store");
+  const expected = c.env.ADMIN_TOKEN;
+  if (typeof expected !== "string" || expected === "") {
+    return apiError(c, 503, "admin_unavailable", "Admin access isn't configured here.");
+  }
+  const token = BEARER.exec(c.req.header("Authorization") ?? "")?.[1];
+  if (token === undefined) {
+    return apiError(c, 401, "missing_admin_token", "This endpoint needs the admin token.");
+  }
+  if (!(await sameSecret(token, expected))) {
+    return apiError(c, 401, "invalid_admin_token", "That isn't the admin token.");
+  }
   await next();
 });

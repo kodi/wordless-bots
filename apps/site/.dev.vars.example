@@ -2,3 +2,5 @@
 # Deployed values are set with `wrangler secret put <NAME>` (docs/ARCHITECTURE.md §14).
 # This one only keys the IP hashes in your local D1, so any value will do.
 IP_HASH_SECRET=local-dev-ip-hash-secret
+# Guards /api/admin/*. Any value will do locally; `pnpm admin` reads the same one from its environment.
+ADMIN_TOKEN=local-dev-admin-token

@@ -262,6 +262,58 @@ export async function olderPosts(
   return { posts: rows.slice(0, size), more: rows.length > size };
 }
 
+/** What a profile shows of a bot. Never the email, the key, the IP hash or the status. */
+export type BotProfile = {
+  username: string;
+  bio: string;
+  createdAt: number;
+  postCount: number;
+  reactionsReceived: number;
+};
+
+/** An active bot by its normalized username, or `undefined`: a banned bot has no profile (§8.2). */
+export async function findBotProfile(db: Db, username: string): Promise<BotProfile | undefined> {
+  return db
+    .select({
+      username: bots.username,
+      bio: bots.bio,
+      createdAt: bots.createdAt,
+      postCount: bots.postCount,
+      reactionsReceived: bots.reactionsReceived,
+    })
+    .from(bots)
+    .where(and(eq(bots.username, username), eq(bots.status, BOT_STATUS.active)))
+    .get();
+}
+
+/**
+ * An active bot's visible posts below `before` (or all of them), newest first, with no limit yet. A banned
+ * bot's posts are hidden already; the status test says so again, so a ban that hid nothing yet still shows
+ * nothing.
+ */
+export function botPostsQuery(db: Db, username: string, before?: number) {
+  return visiblePosts(
+    db,
+    eq(bots.username, username),
+    eq(bots.status, BOT_STATUS.active),
+    ...(before === undefined ? [] : [lt(posts.id, before)]),
+  ).orderBy(desc(posts.id));
+}
+
+/**
+ * Up to `size` of them, a range scan of `posts_by_bot`. Like `olderPosts()` it reads one extra row to tell
+ * whether more remain.
+ */
+export async function botPosts(
+  db: Db,
+  username: string,
+  size: number,
+  before?: number,
+): Promise<{ posts: PostRow[]; more: boolean }> {
+  const rows = await botPostsQuery(db, username, before).limit(size + 1);
+  return { posts: rows.slice(0, size), more: rows.length > size };
+}
+
 export type DeletePostResult =
   | { deleted: true }
   | { deleted: false; reason: "not_found" | "not_owner" };
@@ -303,15 +355,18 @@ export async function deletePost(db: Db, botId: number, postId: number): Promise
 /** A post's stored reaction counters: what the `reactions` of the §8.1 post object is made from. */
 export type ReactionCounts = { reactionTotal: number; reactionTop: string };
 
+/** The reaction counters and the username of the post's author, whose profile shows the reaction (§10.2). */
+export type ReactedCounts = ReactionCounts & { author: string };
+
 export type ReactResult =
   /** `changed` is false when the bot had already sent this emoji: nothing was written. */
-  | ({ ok: true; changed: boolean } & ReactionCounts)
+  | ({ ok: true; changed: boolean } & ReactedCounts)
   | { ok: false; reason: "banned" | "not_found" | "self_reaction" }
   /** `oldest`: when the oldest reaction in the window was sent, the first to age out and free a slot. */
   | { ok: false; reason: "rate_limited"; oldest: number };
 
 export type UnreactResult =
-  | ({ ok: true; changed: boolean } & ReactionCounts)
+  | ({ ok: true; changed: boolean } & ReactedCounts)
   | { ok: false; reason: "banned" | "not_found" };
 
 /** `posts.reaction_total` and `reaction_top` of one post, recomputed from its `reactions` rows. */
@@ -428,10 +483,12 @@ export async function reactToPost(
     db
       .select({
         authorId: posts.botId,
+        author: bots.username,
         reactionTotal: posts.reactionTotal,
         reactionTop: posts.reactionTop,
       })
       .from(posts)
+      .innerJoin(bots, eq(bots.id, posts.botId))
       .where(and(eq(posts.id, postId), eq(posts.hidden, 0))),
     db.select({ status: bots.status }).from(bots).where(eq(bots.id, botId)),
     db.select({ emoji: reactions.emoji }).from(reactions).where(mine()),
@@ -454,6 +511,7 @@ export async function reactToPost(
     return {
       ok: true,
       changed: upserted.length > 0,
+      author: post.author,
       reactionTotal: post.reactionTotal,
       reactionTop: post.reactionTop,
     };
@@ -509,8 +567,13 @@ export async function unreactToPost(db: Db, botId: number, postId: number): Prom
       .returning({ postId: reactions.postId }),
     recountReactions(db, postId),
     db
-      .select({ reactionTotal: posts.reactionTotal, reactionTop: posts.reactionTop })
+      .select({
+        author: bots.username,
+        reactionTotal: posts.reactionTotal,
+        reactionTop: posts.reactionTop,
+      })
       .from(posts)
+      .innerJoin(bots, eq(bots.id, posts.botId))
       .where(and(eq(posts.id, postId), eq(posts.hidden, 0))),
     db.select({ status: bots.status }).from(bots).where(eq(bots.id, botId)),
   ]);

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { api } from "./api.ts";
+import { avatarResponse } from "./avatar.ts";
 import { runScheduled } from "./cron.ts";
 import { apiError, DOCS_URL, type AppEnv } from "./http.ts";
 
@@ -12,6 +13,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.route("/api/v1", api);
+app.get("/a/:file", avatarResponse);
 
 app.notFound((c) => {
   if (c.req.path.startsWith("/api/")) {

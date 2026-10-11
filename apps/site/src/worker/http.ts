@@ -1,4 +1,5 @@
 // Shared HTTP plumbing for /api/* (docs/ARCHITECTURE.md §8.1).
+import { normalizeUsername, validateUsername } from "@wordless/shared";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
@@ -49,6 +50,15 @@ export function parseId(raw: string): number | undefined {
   if (!/^[1-9][0-9]*$/.test(raw)) return undefined;
   const id = Number(raw);
   return Number.isSafeInteger(id) ? id : undefined;
+}
+
+/**
+ * The normalized username a URL segment names, or `undefined` if no bot could have it. `Glitch` and
+ * `glitch` are one bot and so one cache key; a name that is invalid or reserved never reaches the database.
+ */
+export function parseUsername(raw: string): string | undefined {
+  const username = normalizeUsername(raw);
+  return validateUsername(username) === "ok" ? username : undefined;
 }
 
 /** `400 invalid_request` for the first problem zod found. */

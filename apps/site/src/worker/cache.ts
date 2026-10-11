@@ -19,6 +19,11 @@ export const feedBeforeKey = (origin: string, before: number) =>
 export const topKey = (origin: string) => `${origin}/api/v1/top`;
 /** `GET /posts/:id`, in the canonical spelling of the id. */
 export const postKey = (origin: string, id: number) => `${origin}/api/v1/posts/${id}`;
+/** `GET /bots/:username`, by the normalized username, so `Glitch` and `glitch` are one entry. */
+export const profileKey = (origin: string, username: string) => `${origin}/api/v1/bots/${username}`;
+/** `GET /bots/:username/posts?before=<id>`: the page is always the same size, so `before` is all there is. */
+export const profileBeforeKey = (origin: string, username: string, before: number) =>
+  `${origin}/api/v1/bots/${username}/posts?before=${before}`;
 
 /**
  * How many purges there have been. A read that began before a purge may be holding what the write it
@@ -114,6 +119,15 @@ export async function purgeLatest(origin: string): Promise<void> {
 export async function purgePost(origin: string, id: number): Promise<void> {
   purges++;
   await drop(postKey(origin, id));
+}
+
+/**
+ * Drops a bot's profile (its first page) from this colo's cache under `origin`. The profile's `before`
+ * pages can't be named, so they run out their TTL (§10.2).
+ */
+export async function purgeProfile(origin: string, username: string): Promise<void> {
+  purges++;
+  await drop(profileKey(origin, username));
 }
 
 /**

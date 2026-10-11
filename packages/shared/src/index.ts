@@ -16,6 +16,8 @@ export const LATEST_SNAPSHOT_SIZE = 100;
 /** `GET /feed?limit=` bounds. */
 export const FEED_DEFAULT_LIMIT = 50;
 export const FEED_MAX_LIMIT = 100;
+/** Posts per profile page: the first one of `GET /bots/:username` and each `GET /bots/:username/posts?before=`. Fixed, so each `before` id has one cache key. */
+export const PROFILE_PAGE_SIZE = 50;
 /** Posts per `GET /feed?before=` page. Fixed, so each `before` id has one cache key (§7.2, §10.1). */
 export const FEED_BEFORE_PAGE_SIZE = 50;
 
@@ -24,7 +26,14 @@ export const TOP_SNAPSHOT_SIZE = 50;
 export const TOP_WINDOW_S = 86400;
 
 /** How long the edge may keep each public read, in seconds: `s-maxage` (§8.2, §10.1). */
-export const EDGE_TTL_S = { post: 30, feed: 10, feedBefore: 60, top: 60 } as const;
+export const EDGE_TTL_S = {
+  post: 30,
+  feed: 10,
+  feedBefore: 60,
+  top: 60,
+  profile: 30,
+  profileBefore: 60,
+} as const;
 /** How long one isolate keeps the `latest` snapshot rows in memory, in front of the Cache API (§10.1). Not an `s-maxage`. */
 export const ISOLATE_TTL_S = 2;
 
@@ -51,5 +60,6 @@ export const USERNAME_CHECK_MAX = 50;
 /** Free names offered with `409 username_taken`. */
 export const USERNAME_SUGGESTIONS = 5;
 
+export * from "./avatar.ts";
 export * from "./email.ts";
 export * from "./username.ts";

@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-11 (end of the Slice 3 session: `GET` and `DELETE /posts/:id`).
+Last updated: 2026-10-11 (end of the Slice 4 session: the `latest` snapshot and `GET /feed`).
 
 ## Summary
 
@@ -52,26 +52,32 @@ Merged on `main`:
 - #7 `GET` and `DELETE /posts/:id` (squash-merged as `1aade79`): `findPost()`, `deletePost()`,
   `parseId()`, `publicCache()`.
 
-Open: the Slice 4 PR (`feat/feed`, from `1aade79`). Check with `git fetch origin && git log origin/main
---oneline -3` before branching (see Next Slice).
+Open: the Slice 4 PR `feat(api): add GET /feed and the latest snapshot` (branch `feat/feed`, from
+`1aade79`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see
+Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
-`ip-hash.ts`, `serialize.ts` (`iso()`, `serializePost()`), `db/schema.ts`, `db/queries.ts`
-(`createPost()`, `findPost()`, `deletePost()`, `PostRow`). Tests are in `apps/site/test/` with helpers
-`insertBot()` (accepts `lastPostAt`, `status`, `bio`, `createdAt`, `regIpHash`), `seedPost()` (a post
-through `createPost()` with no cooldown wait), `api()` and `nextIp()` in `helpers.ts`. `http.ts` has
-`apiError()`, `readJson()`, `tooManyRequests()` (`429` with `Retry-After` and `retry_after_s`; reuse it
-for `429 cooldown` and reaction limits), `parseId()` (canonical row id from a URL segment) and
-`publicCache(c, ttlS)` (the §10.1 `Cache-Control` for public JSON).
+`ip-hash.ts`, `serialize.ts` (`iso()`, `serializePost()`), `feed.ts` (`latestPage()`, the pure paging
+and gap rules), `db/schema.ts`, `db/queries.ts` (`createPost()`, `findPost()`, `deletePost()`,
+`visiblePosts()`, `olderPosts()`, `PostRow`) and `db/snapshots.ts` (`rebuildLatest()`, `readLatest()`).
+Tests are in `apps/site/test/` with helpers `insertBot()` (accepts `lastPostAt`, `status`, `bio`,
+`createdAt`, `regIpHash`), `seedPost()` (a post through `createPost()` with no cooldown wait),
+`insertPosts()` (bulk insert, no counters; use it to fill a feed), `clearFeed()`, `lateDb()` (a `Db`
+whose answers arrive late; for stale-write races), `api()` and `nextIp()` in `helpers.ts`. `http.ts` has
+`apiError()`, `readJson()`, `readQuery()` and `intParam()` (zod query params in canonical spelling),
+`tooManyRequests()` (`429` with `Retry-After` and `retry_after_s`; reuse it for `429 cooldown` and
+reaction limits), `parseId()` (canonical row id from a URL segment) and `publicCache(c, ttlS)` (the
+§10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed limits and `EDGE_TTL_S`, the
+edge TTL of each public route.
 
-Baseline: `vp test` runs 635 tests (49 shared, 506 wordfilter, 80 worker) on the Slice 3 branch.
-On `main` at `1573a94` (before Slice 3) it is 620.
+Baseline: `vp test` runs 686 tests (49 shared, 506 wordfilter, 131 worker) on the Slice 4 branch.
+On `main` at `1aade79` (before Slice 4) it is 635.
 
-Not built yet: feed, top, reactions, profiles, key rotation, `PATCH /me`, recovery, email,
-admin, form fallback, snapshots, caching, cron, burst rate limits (the register hourly limit exists),
-agent docs (`/skill.md` etc.), all of
-the real UI, Analytics Engine events.
+Not built yet: top, reactions, profiles, key rotation, `PATCH /me`, recovery, email, admin, form
+fallback, the cache layers (the `Cache-Control` headers exist), cron, the `top24` snapshot, burst rate
+limits (the register hourly limit exists), agent docs (`/skill.md` etc.), all of the real UI,
+Analytics Engine events.
 
 Infra reality:
 
@@ -332,6 +338,109 @@ Findings:
   cursors). There is **no `public_id` column**. Reasons: the ids are the cursors, every post is public
   anyway, and nothing is deployed yet. Recorded as decision 36 in ARCHITECTURE §18. Don't reopen it.
 
+### 2026-10-11, Slice 4 session (`latest` snapshot and `GET /feed`)
+
+Done on branch `feat/feed`, branched from `main` at `1aade79` (PR #7 was merged). Not merged yet.
+
+- Design: `rebuildLatest(db)` (`db/snapshots.ts`) is **one statement**, `INSERT INTO snapshots ... SELECT
+  json_group_array(json_object(...)) FROM (<newest 100 visible posts>) WHERE true ON CONFLICT (name) DO
+  UPDATE`, run on the primary outside a batch (raw `sql` is fine there). Rows are read and written at one
+  instant, so a slow rebuild can't put an older view over a newer one (no `updated_at` guard needed).
+  `readLatest(db)` reads the one row; with no row (fresh DB, or posts that predate the first rebuild) it
+  reads the same newest 100 live, so the feed never answers "empty" wrongly. A read never writes.
+- **Origin:** the snapshot stores `PostRow`s (`id, username, content, createdAt, reactionTotal,
+  reactionTop` as the stored JSON string), with no `url`. `serializePost()` adds the request's origin at
+  read time, so the cron (no request) can rebuild it. Changing the stored shape needs a rebuild right
+  after the deploy (the Slice 6 cron does one a minute); `readLatest` trusts the shape.
+- `GET /feed` (`api.ts`): zod on the three known params (`intParam()` in `http.ts`, canonical spelling
+  only). **Malformed or out of range is `400 invalid_request`, never clamped**; `since` with `before` is
+  `400`; unknown params are ignored; `limit` is 1 to 100 (default 50); `since` may be `0`; `before` is 1+.
+  Answers `{posts, cursor, next}` plus `gap` when `since` is given. Posts are newest first.
+  - `cursor` = newest id in `posts`; **Open Question 6 decided:** with no posts it echoes the caller's
+    `since`, or `0` with none. The cursor of a `before` page is that page's newest id, so a bot must save
+    `cursor` only from a request without `before`.
+  - `gap` = a **full** snapshot (100 posts) with `since < oldest id - 1`. One below the oldest id is no
+    gap (the bot has seen everything under it). This is one stricter than "since below the oldest id" in
+    the handoff; it is covered by `feed-page.test.ts`. A full snapshot can't tell a missing post from a
+    deleted id, so it may report a gap with no post in it.
+  - `next` = `…/feed?before=<oldest id returned>`, or `null`. With `since`, `next` is non-null only if
+    posts newer than `since` are missing from `posts` (a gap, or cut off by `limit`); the older posts are
+    the ones the bot already has. From the first page, `next` is `null` only for a snapshot short of full
+    that was not cut off; a full one can't know, so its `next` may lead to an empty page.
+  - `before` pages are `FEED_BEFORE_PAGE_SIZE` (50) posts and ignore `limit` (one cache key per id,
+    §7.2). `olderPosts()` reads 51 rows to know whether a next page exists.
+- Constants moved to `packages/shared`: `LATEST_SNAPSHOT_SIZE` 100, `FEED_DEFAULT_LIMIT` 50,
+  `FEED_MAX_LIMIT` 100, `FEED_BEFORE_PAGE_SIZE` 50 and `EDGE_TTL_S = {post: 30, feed: 10, feedBefore:
+  60}` (replaces `POST_READ_TTL_S` in `api.ts`). Slice 4.1 should read its L1 TTLs from `EDGE_TTL_S` too.
+- Wiring: `refreshLatest()` in `api.ts` calls `ctx.waitUntil(rebuildLatest(...).catch(log))` after a
+  successful post create and delete. A failed rebuild is logged and the snapshot stays until the next
+  write or the cron. Both places keep a `TODO(§10.2)` for the cache purge (Slice 4.1).
+- `visiblePosts()` in `db/queries.ts` is the one `PostRow` select with `hidden = 0`; `findPost()`,
+  `olderPosts()` and the snapshot all start from it.
+- Tests (51 new): `feed-page.test.ts` (the pure gap and `more` matrix), `feed.test.ts` (fresh DB, no
+  snapshot row, snapshot-vs-live, post shape, origin, a 190-post walk through the snapshot-to-table seam
+  at three limits, `before` boundaries, `since`, gap filling, limits, 15 bad queries, cache headers),
+  `snapshot.test.ts` (rebuild contents and order, replace, empty, the late-answer race, and the
+  create and delete wiring through `vi.waitFor`).
+
+Verified (all run from the repo root):
+
+- `vp check`: clean (47 files linted and type-checked, 67 formatted).
+- `vp test`: 21 files, **686 passed** (635 baseline + 51 new). The full suite passed 5 runs in a row, and
+  `vp test apps/site/test/snapshot apps/site/test/feed` (51 tests) passed 15 runs in a row.
+- `vp run -r build`: passed (Worker 96.08 kB gzip, up from 91.81; SPA 94.96 kB gzip).
+- Mutation checks, each reverted with `git checkout` afterwards (tests: `apps/site/test/feed` and
+  `apps/site/test/snapshot`, plus `post-read` for the hidden filter):
+  - `since`: `>` to `>=`: 4 fail. `before`: `<` to `<=`: 5 fail (the walks and the boundary test).
+  - Hidden filter dropped from `visiblePosts()`: 6 fail (3 walks, `before`, the snapshot rebuild, the
+    `post-read` hidden test).
+  - Gap rule: `since < oldest - 1` to `since < oldest`: 2 fail; young snapshot not exempt: 2 fail; never a
+    gap: 5 fail.
+  - Order: snapshot picks the oldest 100 (`orderBy` ascending): 11 fail; the aggregate fed oldest first
+    (`ORDER BY id` in a wrapping subquery): 10 fail, so SQLite does hand `json_group_array` its input in
+    order and the test pins it; `before` pages ascending: 5 fail.
+  - Limit: upper bound dropped from `intParam`: 2 fail (`limit=101`, a 20-digit `since`); `limit` ignored on
+    the first page: 4 fail; ignored with `since`: 1 fail (the unit test only); default limit set to the max: 1.
+  - Wiring: no rebuild after create, or after delete: 1 fail each (they time out in `vi.waitFor`).
+  - No snapshot row answers empty instead of reading live: 1 fail. Cursor not echoing `since`: 2 fail.
+  - `olderPosts`: `more` as `>=` instead of `>` **survived** until I added "a before page links on only
+    when older posts remain beyond it"; now 1 fails. Reading `size` instead of `size + 1` rows: 3 fail.
+  - Head `more` ignoring a full snapshot: 2 fail. `ON CONFLICT` updating only `updated_at`: 4 fail.
+    Snapshot of 50 instead of 100: 4 fail.
+  - Stale write: a read-then-write rebuild **passed my first concurrency test 10 of 10 runs** (12 tasks,
+    each insert then rebuild, in a `Promise.all`). With equal latency D1 runs statements in arrival order,
+    so a rebuild's write can't land after a newer rebuild's. The test was replaced by "a rebuild that hears
+    back late can't put an older view over a newer one", which uses `lateDb(60)` (statements run at once,
+    the caller hears back 60 ms later). The read-then-write version fails it 10 of 10 runs; the real one
+    passes.
+- Live check against the already running `mise run dev` server on :5173 (no new server started, nothing
+  killed): the empty feed answered `{"posts":[],"cursor":0,"next":null}`; the validation cases gave `400`
+  and the `Cache-Control` headers were `s-maxage=10` / `60`. Then register (with its own
+  `CF-Connecting-IP`), `POST /posts`, `GET /feed` (the post, with `http://localhost:5173/p/1`), `since=1`
+  (empty, `cursor: 1`, `gap: false`), `since=0` (the post), `before=1` (empty), `DELETE` (`204`), and
+  `GET /feed` (empty again). The `snapshots` row held `[]` with an `updated_at` after the delete, so both
+  `waitUntil` rebuilds ran. The local D1 was empty before; the probe bot, post, snapshot row and `posts`
+  `sqlite_sequence` row were deleted afterwards (`pnpm exec wrangler d1 execute DB --local ...` from
+  `apps/site`).
+
+Findings:
+
+- **An equal-latency `Promise.all` can't catch a stale-write race.** It catches check-then-write (Slices 2
+  and 3: both calls read before either writes), but not "an old read lands its write after a newer
+  rebuild", because D1 serializes statements in arrival order. Use `lateDb()` for that shape. Recorded in
+  ARCHITECTURE §15. Slice 5 (reactions) and Slice 6 (`top24`) should use it if they add a rebuild.
+- `waitUntil` works under `exports.default.fetch` in `@cloudflare/vitest-plugin` (`c.executionCtx` is a
+  real context), but it can't be awaited, so the wiring tests poll the feed with `vi.waitFor`. They need a
+  snapshot row to exist first, or the no-row fallback would show the new post without any rebuild.
+- Hono's `c.executionCtx` is typed narrower than the global `ExecutionContext`; `refreshLatest()` takes
+  `Pick<ExecutionContext, "waitUntil">`.
+- D1 allows 100 bound variables per statement. Drizzle binds the column defaults too, so a `posts` row is 6
+  variables, and `insertPosts()` inserts 12 rows per statement (72 variables).
+- A 400 on `limit` over 100 (rather than clamping) means a bot that asks for 200 gets an error naming the
+  bound. If that proves too strict in practice, it is one line in `intParam()`.
+- Not changed, as instructed: `wrangler.jsonc`, the missing `Cache-Control: private, no-store` on authed
+  responses (Open Question 7), tests-in-CI (Slice A), burst limits (Slice 1.1), the cache layers (Slice 4.1).
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -346,7 +455,11 @@ Ask the user rather than assuming:
 4. **First deploy** of staging and prod (Slice 14), and who sets any new remote secrets, such as
    `ADMIN_TOKEN` in Slice 11. `IP_HASH_SECRET` is already set on both.
 5. **Cron triggers** (`triggers.crons`, needed in Slice 6): treat as infra and confirm.
-6. Minor, decide in Slice 4: what `cursor` is when the feed is empty.
+6. ~~What `cursor` is when the feed is empty.~~ Resolved in Slice 4: it echoes the caller's `since`, or
+   `0` with none (ARCHITECTURE §8.1).
+7. **`Cache-Control: private, no-store` on authed responses** (`/me`, `POST /posts`, `DELETE /posts/:id`;
+   §10.1 says they carry it, the code doesn't). Asked in the Slice 3 and Slice 4 sessions, no answer yet.
+   Don't add it unasked; ask again. It is a one-line change in `requireBot`.
 
 ## Slices
 
@@ -474,7 +587,10 @@ Status: `[x]` Done and verified. Merged as `1aade79` (PR #7). See Working Notes
 
 ### Slice 4: `latest` snapshot and `GET /feed`
 
-Status: `[ ]`
+Status: `[x]` Done and verified on `feat/feed` (PR open, not merged yet). See Working Notes 2026-10-11,
+Slice 4 session. Differences from the sketch below: the snapshot stores rows without `url` (serialized
+at read time), the rebuild is one `INSERT ... SELECT json_group_array(...)` statement, `before` pages
+ignore `limit`, bad params are `400` (never clamped), and a missing snapshot row falls back to a live read.
 
 - New `db/snapshots.ts`: `rebuildLatest()` writes the newest 100 visible posts as ready-to-serve JSON
   to `snapshots('latest')`. The feed reads that one row (§7.2).
@@ -493,6 +609,11 @@ Status: `[ ]`
 
 - L0 isolate memory (2 s, snapshots only), L1 Cache API with canonical keys (known params only),
   local purge on writes (§10.1, §10.2). Test that junk query strings don't create new cache entries.
+- Start from what Slice 4 left: `EDGE_TTL_S` in `packages/shared` (use it for the L1 TTLs), the two
+  `TODO(§10.2)` lines in `api.ts` (post create and delete) where the purge goes, `readQuery()` and the
+  `FeedQuery` schema (only `limit`, `since` and `before` count, so the canonical key is built from
+  those), and `refreshLatest()` (the purge can share its `waitUntil`). A `since` request must not get a
+  cache entry of its own: serve it from the cached snapshot, as §10.1 says.
 
 ### Slice 5: reactions
 
@@ -594,30 +715,24 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 4: `latest` snapshot and `GET /feed`.** Slice A (tests in CI) is still deferred by the user and
-Slice 1.1 still waits on the Rate Limiting binding (Open Question 1). `AGENTS.md` is deliberately
-unchanged, so the user will point you at this file.
+**Slice 4.1: cache layers.** Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits
+on the Rate Limiting binding (Open Question 1). `AGENTS.md` is deliberately unchanged, so the user will
+point you at this file.
 
 Start here:
 
-1. `git fetch origin`. If the Slice 3 PR (`feat/post-read-delete`) is merged: `git switch main && git pull`,
-   then `git switch -c feat/feed`. If it is not merged and the user wants to continue anyway, branch from
-   `feat/post-read-delete`. Don't use the `gh` API heavily if it is rate limited; `git` over SSH is
-   unaffected.
-2. Read `AGENTS.md`, then ARCHITECTURE §7.0 (the batch note), §7.2, §8.1, §8.2, §10.1 to §10.3 and §15,
-   then `db/queries.ts` (`PostRow`, `findPost()`, `createPost()`, `deletePost()`), `serialize.ts`, `http.ts`
-   (`publicCache()`, `parseId()`) and the two `TODO(§7.1)` lines in `api.ts` (post create and delete): those
-   are where `ctx.waitUntil(rebuildLatest(...))` goes.
-3. `vp test` should report 635 passing before you change anything (620 on a `main` without Slice 3).
-   For a live server run `cd apps/site && vp dev --port 5174 --strictPort`: `vp dev` at the repo root
-   serves no Worker. Check `lsof -ti :5173` first, because one may already be running, and never kill a
-   server you didn't start (compare the pid's start time with yours).
-4. Follow the Slice 4 section above. Open Question 6 (what `cursor` is when the feed is empty) is yours to
-   decide: pick one, write it in §8.1 and say so in the PR. Reads use `readDb()`, snapshot rebuilds read
-   the primary. Batch items must be query builders, not raw `sql` statements (§7.0). Reuse `serializePost()`
-   and the `PostRow` select from `findPost()`. `GET /posts/:id` answers `{post}`; the feed answers
-   `{posts, cursor, next}`.
-5. Ask the user before touching `wrangler.jsonc` bindings.
-6. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this
-   file's Slice 4 is `[x]` with the exact commands under Working Notes, and `Next Slice` points at
-   Slice 4.1.
+1. `git fetch origin`. If the Slice 4 PR (`feat/feed`) is merged: `git switch main && git pull`, then
+   `git switch -c feat/cache`. If it is not merged and the user wants to continue anyway, branch from
+   `feat/feed`. Don't use the `gh` API heavily if it is rate limited; `git` over SSH is unaffected.
+2. Read `AGENTS.md`, then ARCHITECTURE §10.1 to §10.3 and §7.2, then `api.ts` (`/feed`, `refreshLatest()`
+   and the two `TODO(§10.2)` lines), `http.ts` (`readQuery()`, `publicCache()`) and `packages/shared`
+   (`EDGE_TTL_S`). Follow the Slice 4.1 section above.
+3. `vp test` should report 686 passing before you change anything.
+   For a live server, a `mise run dev` one may already be running on :5173 (it was in Slice 4): reuse it,
+   it reloads on changes. Otherwise run `cd apps/site && vp dev --port 5174 --strictPort`: `vp dev` at the
+   repo root serves no Worker. Never kill a server you didn't start.
+4. Ask the user before touching `wrangler.jsonc` bindings. Ask again about Open Question 7 (`private,
+   no-store` on authed responses); don't add it unasked.
+5. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this
+   file's Slice 4.1 is `[x]` with the exact commands under Working Notes, and `Next Slice` points at
+   Slice 5.

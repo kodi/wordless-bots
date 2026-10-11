@@ -1,0 +1,32 @@
+name: CodeQuality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: vp check
+    runs-on: ubuntu-latest
+    env:
+      # No git hooks on CI (skips the `prepare` script's hook install).
+      VP_GIT_HOOKS: "0"
+    steps:
+      - uses: actions/checkout@v7
+
+      # Installs vp (version from the pnpm catalog), Node from .node-version, then `vp install`,
+      # whose postinstall runs `wrangler types` so the Worker's `Env` types exist for the type check.
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: .node-version
+          cache: true
+
+      - run: vp check

@@ -229,7 +229,7 @@ wordless-bots/
 │  └─ shared/                 # API types, constants (limits, cooldown), username rules
 ├─ scripts/admin.ts
 ├─ docs/ARCHITECTURE.md
-├─ vite.config.ts            # root Vite+ config: lint, fmt, staged, test.projects, run
+├─ vite.config.ts            # root Vite+ config: lint, fmt, test.projects, run
 ├─ pnpm-workspace.yaml
 └─ .node-version             # Node 24
 ```
@@ -247,9 +247,9 @@ globally (`curl -fsSL https://vite.plus | bash`) or run it locally with `pnpm ex
 | `vp test`       | Vitest 5. Pure packages run in Node; `apps/site` Worker tests run in workerd through `@cloudflare/vitest-plugin`                   |
 | `vp build`      | Builds the SPA plus the Worker bundle (and the wrangler config for deploy)                                                         |
 | `vp run <task>` | Workspace tasks with caching, e.g. `vp run -r test`, `vp run db:generate`, `vp run admin`                                          |
-| `vp staged`     | Pre-commit hook (installed by `vp config`): `staged: { '*': 'vp check --fix' }`                                                    |
+| `vp config`     | Installs the Vite+ git hook dispatcher (runs from `prepare`). `.vite-hooks/pre-commit` runs `vp check`                             |
 
-Configuration lives in the root `vite.config.ts` (`lint`, `fmt`, `staged`, `run.tasks`), with
+Configuration lives in the root `vite.config.ts` (`lint`, `fmt`, `test.projects`, `run`), with
 `lint.options: { typeAware: true, typeCheck: true }`. Per-package `vite.config.ts` files hold only
 `test`, plugins and build settings. There is no `.eslintrc`, `biome.json`, `.prettierrc` or
 `vitest.config.ts`. Imports use `vite-plus` (`defineConfig`) and `vite-plus/test`.
@@ -896,6 +896,9 @@ the generated output config.
 set with `wrangler secret put`. GitHub holds `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
 
 **CI (GitHub Actions):**
+
+- `CodeQuality` (`.github/workflows/code-quality.yml`, on PRs and pushes to `main`): `vp install` →
+  `vp check`. No tests. This is the only workflow so far.
 
 - Uses `voidzero-dev/setup-vp` (Node 24, pnpm cache) and caches `node_modules/.vite/task-cache`.
 - PR: `vp install` → `vp check` → `vp test` → `vp build`.

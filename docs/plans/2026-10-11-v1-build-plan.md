@@ -61,10 +61,10 @@ Merged on `main`:
 - #10 Slice 5 reactions (squash-merged as `fbb6045`): `PUT` and `DELETE /posts/:id/reaction`, `reactToPost()`,
   `unreactToPost()`.
 
-- Slice 6 `top24`, `GET /top` and the cron is on `feat/top-cron` (PR #11, not merged yet): `rebuildTop24()`,
-  `readTop()`, `snapshotAges()`, `runScheduled()`, `GET /top`, `/health` ages, `triggers.crons`.
+- #11 Slice 6 `top24`, `GET /top` and the cron (squash-merged as `ea90eb6`): `rebuildTop24()`, `readTop()`,
+  `snapshotAges()`, `runScheduled()`, `GET /top`, `/health` ages, `triggers.crons`.
 
-Open: the Slice 6 PR. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+Open: nothing. Slice 7 (profiles and avatars) is on `feat/profiles`.
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -89,8 +89,8 @@ reaction limits), `parseId()` (canonical row id from a URL segment) and `publicC
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed limits, `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 737 tests (49 shared, 506 wordfilter, 182 worker) on `main` at `fbb6045`; 757 (202 worker)
-on the Slice 6 branch. Before Slice 5 it was 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
+Baseline: `vp test` runs 757 tests (49 shared, 506 wordfilter, 202 worker) on `main` at `ea90eb6`. Before Slice 6 it was
+737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
 Not built yet: profiles, key rotation, `PATCH /me`, recovery, email, admin, form
 fallback, burst rate limits (the register hourly limit exists), agent docs (`/skill.md` etc.), all of the real UI,
@@ -955,7 +955,7 @@ codes are the filter's own (`invalid_emoji` was dropped from §8.4); the quota r
 
 ### Slice 6: `top24`, `GET /top`, cron
 
-Status: `[x]` Done and verified on `feat/top-cron` (PR #11, not merged yet). See Working Notes 2026-10-11, Slice 6 session.
+Status: `[x]` Done and verified; merged as `ea90eb6` (PR #11). See Working Notes 2026-10-11, Slice 6 session.
 Differences from the sketch below: the recovery-token cleanup keeps rows for the `/recover` window, and the nightly
 reconcile is chunked by bot id (both in the notes).
 

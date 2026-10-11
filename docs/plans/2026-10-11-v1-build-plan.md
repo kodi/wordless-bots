@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-11 (end of the Slice 4 session: the `latest` snapshot and `GET /feed`).
+Last updated: 2026-10-11 (end of the Slice 4.1 session: the cache layers).
 
 ## Summary
 
@@ -51,31 +51,39 @@ Merged on `main`:
 - #6 `POST /posts` (squash-merged as `1573a94`): `createPost()`, `serializePost()`, `PostRow`.
 - #7 `GET` and `DELETE /posts/:id` (squash-merged as `1aade79`): `findPost()`, `deletePost()`,
   `parseId()`, `publicCache()`.
+- #8 `GET /feed` and the `latest` snapshot (squash-merged as `012c78a`): `rebuildLatest()`,
+  `readLatest()`, `latestPage()`, `EDGE_TTL_S`, and `private, no-store` on everything behind a key.
 
-Open: the Slice 4 PR #8 `feat(api): add GET /feed and the latest snapshot` (branch `feat/feed`, from
-`1aade79`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see
-Next Slice).
+Open: the Slice 4.1 PR #9 `feat(cache): add L0 and L1 read caches with a local purge on writes` (branch
+`feat/cache`, from `012c78a`). Check with `git fetch origin && git log origin/main --oneline -3` before
+branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
 `ip-hash.ts`, `serialize.ts` (`iso()`, `serializePost()`), `feed.ts` (`latestPage()`, the pure paging
-and gap rules), `db/schema.ts`, `db/queries.ts` (`createPost()`, `findPost()`, `deletePost()`,
+and gap rules), `cache.ts` (L0 and L1: `readLatestCached()`, `cachedResponse()`, `purgeLatest()`,
+`purgePost()`, `rebuildAndPurgeLatest()` and the `latestKey()`, `feedBeforeKey()`, `postKey()` builders),
+`db/schema.ts`, `db/queries.ts` (`createPost()`, `findPost()`, `deletePost()`,
 `visiblePosts()`, `olderPosts()`, `PostRow`) and `db/snapshots.ts` (`rebuildLatest()`, `readLatest()`).
 Tests are in `apps/site/test/` with helpers `insertBot()` (accepts `lastPostAt`, `status`, `bio`,
 `createdAt`, `regIpHash`), `seedPost()` (a post through `createPost()` with no cooldown wait),
-`insertPosts()` (bulk insert, no counters; use it to fill a feed), `clearFeed()`, `lateDb()` (a `Db`
-whose answers arrive late; for stale-write races), `api()` and `nextIp()` in `helpers.ts`. `http.ts` has
+`insertPosts()` (bulk insert, no counters; use it to fill a feed), `clearFeed()` (also purges the cached
+snapshot: isolate memory and the Cache API outlive a test), `rebuild()` (what a post or delete does after
+its response: rebuild `latest`, then purge; use it instead of calling `rebuildLatest()` and then reading),
+`lateDb()` (a `Db` whose answers arrive late; for stale-write races), `gatedDb()` (a `Db` whose statements
+wait for `release()`; for what happens before a write lands), `ORIGIN`, `api()` and `nextIp()` in
+`helpers.ts`. `http.ts` has
 `apiError()`, `readJson()`, `readQuery()` and `intParam()` (zod query params in canonical spelling),
 `tooManyRequests()` (`429` with `Retry-After` and `retry_after_s`; reuse it for `429 cooldown` and
 reaction limits), `parseId()` (canonical row id from a URL segment) and `publicCache(c, ttlS)` (the
-§10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed limits and `EDGE_TTL_S`, the
-edge TTL of each public route.
+§10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed limits, `EDGE_TTL_S` (the L1 TTL of each
+public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 687 tests (49 shared, 506 wordfilter, 132 worker) on the Slice 4 branch.
-On `main` at `1aade79` (before Slice 4) it is 635.
+Baseline: `vp test` runs 702 tests (49 shared, 506 wordfilter, 147 worker) on the Slice 4.1 branch.
+On `main` at `012c78a` (before Slice 4.1) it is 687.
 
 Not built yet: top, reactions, profiles, key rotation, `PATCH /me`, recovery, email, admin, form
-fallback, the cache layers (the `Cache-Control` headers exist), cron, the `top24` snapshot, burst rate
+fallback, cron, the `top24` snapshot, burst rate
 limits (the register hourly limit exists), agent docs (`/skill.md` etc.), all of the real UI,
 Analytics Engine events.
 
@@ -340,7 +348,7 @@ Findings:
 
 ### 2026-10-11, Slice 4 session (`latest` snapshot and `GET /feed`)
 
-Done on branch `feat/feed`, branched from `main` at `1aade79` (PR #7 was merged). Not merged yet.
+Done on branch `feat/feed`, branched from `main` at `1aade79` (PR #7 was merged). Merged as `012c78a` (PR #8).
 
 - Design: `rebuildLatest(db)` (`db/snapshots.ts`) is **one statement**, `INSERT INTO snapshots ... SELECT
   json_group_array(json_object(...)) FROM (<newest 100 visible posts>) WHERE true ON CONFLICT (name) DO
@@ -445,6 +453,106 @@ Findings:
   bound. If that proves too strict in practice, it is one line in `intParam()`.
 - Not changed, as instructed: `wrangler.jsonc`, tests-in-CI (Slice A), burst limits (Slice 1.1), the cache
   layers (Slice 4.1).
+
+### 2026-10-11, Slice 4.1 session (cache layers)
+
+Done on branch `feat/cache` (PR #9), branched from `main` at `012c78a` (PR #8 was merged). Not merged yet.
+
+- Design (`cache.ts`):
+  - **What is cached.** L0 (a `Map` slot in isolate memory, `ISOLATE_TTL_S` = 2) and L1 (`caches.default`,
+    `EDGE_TTL_S.feed` = 10) hold the **snapshot rows** under one fixed internal key (`<origin>/_cache/latest`);
+    `limit` and `since` are cut from them in memory by `latestPage()`, so neither makes an entry. L1 also
+    holds the **whole response** of `GET /feed?before=<id>` and `GET /posts/:id`, one key per id.
+  - **Keys come from parsed values, never the raw URL**, and start with the request's origin. The origin is
+    there because staging and prod can share one zone's cache and each has its own D1; a host-less key
+    would serve one the other's snapshot. L0 has no host (a Worker has one database).
+  - **Only a `200` is stored** (`cachedResponse()`), on top of the Cache API refusing a response with no
+    TTL. A hit is returned as `new Response(hit.body, hit)`: a cached response's headers are read-only and
+    `index.ts` adds `X-Wordless-Docs` to every API response.
+  - **Where the purge lives:** `rebuildAndPurgeLatest(db, origin)` in `cache.ts`, not `rebuildLatest()`.
+    The L1 key needs an origin, and the Slice 6 cron has none; it also doesn't need a purge (its colo
+    converges within the TTL). So **the cron calls `rebuildLatest()` and purges nothing.** `refreshLatest()`
+    in `api.ts` wraps `rebuildAndPurgeLatest()` in `waitUntil`. A failed rebuild purges nothing.
+  - **Order:** rebuild, then purge (purging first lets a read in the gap refill the cache from the old
+    snapshot for a full TTL). The deleted post's own entry has no rebuild to wait for, so `purgePost()` is
+    awaited before the `204`. A create purges only the snapshot: the new id has no entry (ids are never
+    reused and a 404 is never kept).
+  - **Stale fills:** a module counter, `purges`, goes up on every purge. A read fills a layer only if it
+    didn't move while the read ran, so a read that began before a purge can't undo it. This guards one
+    isolate; another isolate in the colo can still fill after a purge, bounded by the TTL.
+  - Fills are **awaited**, not `waitUntil`: a purge that follows a response can't be overtaken by that
+    response's fill, and tests need no polling. The Cache API never fails a request: `match`, `put` and
+    `delete` errors are logged and the request is a miss.
+  - `ISOLATE_TTL_S` is a separate export from `EDGE_TTL_S` in `packages/shared`: `EDGE_TTL_S` values go to
+    `publicCache()` as `s-maxage`, and L0's is not one.
+- **Staleness adds up.** L0 can copy the snapshot from L1 just before L1's entry expires and keep it 2 s more,
+  so the first page and `since` can be up to **12 s** behind, not 10 (§10.2 says so). If 10 s must hold, cap
+  L0's expiry at the L1 entry's age (store the fill time in the L1 body): about six lines and a test.
+- Not purged, by design (§10.2): other isolates' L0 (up to 2 s), other colos and hostnames, `before` pages that
+  still list a deleted post (keys can't be named; up to 60 s), and the author's profile (`TODO(§10.2)` in both
+  write routes until Slice 7 adds the profile entry).
+- Tests: 15 new in `test/cache.test.ts`. Changed: `helpers.ts` (`ORIGIN`, `rebuild()`, `gatedDb()`, `clearFeed()`
+  purges, and `lateDb()` and `gatedDb()` share one `intercept()` proxy), `feed.test.ts` (uses `rebuild()`),
+  `post-read.test.ts` (the hidden-post test no longer reads the post as visible first: a second read would be
+  cached). `snapshot.test.ts` is unchanged, and its two wiring tests now also cover the purge.
+- `mise run db:reset` also removes `apps/site/.wrangler/state/v3/cache` (not run: it would wipe the cache of a
+  dev server I don't own). ARCHITECTURE §4.1 says so too.
+
+Verified (all run from the repo root):
+
+- `vp check`: clean (49 files linted and type-checked, 69 formatted).
+- `vp test`: 22 files, **702 passed** (687 baseline + 15 new), 3 full runs in a row. The five files that touch
+  the caches (`vp test apps/site/test/cache.test.ts apps/site/test/feed.test.ts apps/site/test/snapshot.test.ts
+  apps/site/test/post-read.test.ts apps/site/test/post-delete.test.ts`, 64 tests) passed 10 runs in a row.
+- `vp run -r build`: passed (Worker 97.34 kB gzip, up from 96.13; SPA 94.96 kB gzip).
+- Mutation checks, each reverted with `git checkout` afterwards, whole suite run. All 22 were caught:
+  - Key from the raw URL: before page (1: the junk-params test), snapshot (13), post (1: the junk-params-on-a-post
+    test). Origin left out of the key (1: the origin test).
+  - Snapshot purge removed on create (2), on delete (2). Post purge removed on delete (4). Post purge left to
+    `waitUntil` (1: "the DELETE waits for the post's entry to go, however slow the cache is").
+  - Purge before rebuild (1: "a read in the gap before the rebuild lands can't keep the old snapshot").
+  - L0 never expires (1), L0 absent (1), L0 TTL hardcoded at 60 s (1), purge leaves L0 (18). Snapshot never
+    stored in L1 (1), snapshot purge doesn't touch L1 (19).
+  - Stale-fill guard removed: snapshot L0 only, L1 only, or both (1 each), whole responses (1).
+  - A 404 kept (status guard dropped **and** the 404 given a TTL, since the Cache API refuses a response with no
+    TTL on its own) (1). A hit returned as stored, with read-only headers (4).
+  - `/me` wrapped in `cachedResponse()` with a TTL (14, incl. "what is behind a key is not kept"). Contrived:
+    `requireBot`'s `private, no-store` and the Cache API both refuse it already, so this test guards only
+    against someone caching an authed route on purpose.
+  - Three survived the first round and got tests: the post key from the raw URL, the stale-fill guard on whole
+    responses, and the post purge left to `waitUntil`.
+- Live check against the already running `mise run dev` server on :5173 (nothing started on it, nothing
+  killed): the empty feed, then register two bots (own `CF-Connecting-IP` each) and `POST /posts`. A's post was in
+  `/feed` at once; after B posted, `/feed` showed `[2,1]` within 150 ms (the purge). `GET /posts/2` was `200`,
+  then `404` right after B's `DELETE`, and the feed dropped it. Then both posts and the `snapshots` row were
+  deleted in D1 underneath: `GET /posts/1` still answered `200` (`cache-control: public, max-age=5,
+  s-maxage=30` and `x-wordless-docs` intact) and `/feed` still `[1]`; 33 s later `/posts/1` was `404` and the
+  feed `[]`. A post that never existed stayed `404`.
+- Restart check on my own server (`cd apps/site && vp dev --port 5174 --strictPort`, stopped afterwards): filled
+  `/feed?before=4` (`[3]`), stopped the server, deleted the posts in D1, restarted: it still answered `[3]`,
+  while a `before` never asked for answered `[]`. **Local cache state outlives a restart.** The probe bots,
+  posts, snapshot row and `sqlite_sequence` rows were deleted afterwards (the local D1 was empty before).
+
+Findings:
+
+- **`vp test` prints its `FAIL` lines on stderr.** A script that wants test names must capture both streams
+  (`stderr=subprocess.STDOUT`); mine saw only the counts in the first mutation round.
+- Under `@cloudflare/vitest-plugin` the tests and `exports.default.fetch` share module state, so a test can reach
+  L0 (`purgeLatest()` clears the Worker's `Map`). `caches.default` is one stable object, so
+  `vi.spyOn(caches.default, "delete")` works. `vi.useFakeTimers({ toFake: ["Date"] })` moves L0's clock while D1 and
+  the Cache API keep real time.
+- **`lateDb()` can't test a purge that comes too early.** It delays the answer, so its write has landed by the time
+  anything else happens. `gatedDb()` holds the statement back until `release()`, which makes the gap in which a
+  read refills the cache. Use it for any later "do X before the write lands" test.
+- Hono: setting a header on a response that came from the Cache API fails (read-only), so copy it.
+- Dev: the Cache API works under `vp dev` and persists in `apps/site/.wrangler/state/v3/cache`.
+- A read replica that hasn't caught up with the rebuild can refill right after the purge. Nothing handles
+  it (the TTL bounds it); the fix would be to carry the write's D1 bookmark into the next read.
+- For Slice 5: if a reaction rebuilds `latest`, call `rebuildAndPurgeLatest()`, not `rebuildLatest()`. For Slice 6:
+  the cron calls `rebuildLatest()` (no origin, no purge). For Slice 7: profiles are a new cached key; add it to the
+  two `TODO(§10.2)` purges and give it a `cachedResponse()` key builder in `cache.ts`.
+- Not changed, as instructed: `wrangler.jsonc`, tests-in-CI (Slice A), burst limits (Slice 1.1), response shapes
+  and TTL values.
 
 ## Open Questions
 
@@ -593,7 +701,7 @@ Status: `[x]` Done and verified. Merged as `1aade79` (PR #7). See Working Notes
 
 ### Slice 4: `latest` snapshot and `GET /feed`
 
-Status: `[x]` Done and verified on `feat/feed` (PR #8, not merged yet). See Working Notes 2026-10-11,
+Status: `[x]` Done and verified. Merged as `012c78a` (PR #8). See Working Notes 2026-10-11,
 Slice 4 session. Differences from the sketch below: the snapshot stores rows without `url` (serialized
 at read time), the rebuild is one `INSERT ... SELECT json_group_array(...)` statement, `before` pages
 ignore `limit`, bad params are `400` (never clamped), and a missing snapshot row falls back to a live read.
@@ -611,15 +719,16 @@ ignore `limit`, bad params are `400` (never clamped), and a missing snapshot row
 
 ### Slice 4.1: cache layers
 
-Status: `[ ]`
+Status: `[x]` Done and verified on `feat/cache` (PR #9, not merged yet). See Working Notes 2026-10-11,
+Slice 4.1 session. Differences from the sketch below: L0 and L1 cache the snapshot **rows** (not a response)
+and `limit` and `since` are applied in memory; `before` pages and `/posts/:id` are cached whole; the L1 keys
+start with the origin; the purge is `rebuildAndPurgeLatest()` (rebuild, then purge) and the cron won't purge;
+a purge counter keeps reads that began before a purge from filling afterwards.
 
 - L0 isolate memory (2 s, snapshots only), L1 Cache API with canonical keys (known params only),
   local purge on writes (§10.1, §10.2). Test that junk query strings don't create new cache entries.
-- Start from what Slice 4 left: `EDGE_TTL_S` in `packages/shared` (use it for the L1 TTLs), the two
-  `TODO(§10.2)` lines in `api.ts` (post create and delete) where the purge goes, `readQuery()` and the
-  `FeedQuery` schema (only `limit`, `since` and `before` count, so the canonical key is built from
-  those), and `refreshLatest()` (the purge can share its `waitUntil`). A `since` request must not get a
-  cache entry of its own: serve it from the cached snapshot, as §10.1 says.
+- Started from what Slice 4 left: `EDGE_TTL_S` in `packages/shared` (used for the L1 TTLs), the two
+  `TODO(§10.2)` lines in `api.ts`, `readQuery()` and the `FeedQuery` schema, and `refreshLatest()`.
 
 ### Slice 5: reactions
 
@@ -721,23 +830,28 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 4.1: cache layers.** Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits
-on the Rate Limiting binding (Open Question 1). `AGENTS.md` is deliberately unchanged, so the user will
-point you at this file.
+**Slice 5: reactions.** Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the
+Rate Limiting binding (Open Question 1). `AGENTS.md` is deliberately unchanged, so the user will point you at
+this file.
 
 Start here:
 
-1. `git fetch origin`. If the Slice 4 PR (`feat/feed`) is merged: `git switch main && git pull`, then
-   `git switch -c feat/cache`. If it is not merged and the user wants to continue anyway, branch from
-   `feat/feed`. Don't use the `gh` API heavily if it is rate limited; `git` over SSH is unaffected.
-2. Read `AGENTS.md`, then ARCHITECTURE §10.1 to §10.3 and §7.2, then `api.ts` (`/feed`, `refreshLatest()`
-   and the two `TODO(§10.2)` lines), `http.ts` (`readQuery()`, `publicCache()`) and `packages/shared`
-   (`EDGE_TTL_S`). Follow the Slice 4.1 section above.
-3. `vp test` should report 687 passing before you change anything.
-   For a live server, a `mise run dev` one may already be running on :5173 (it was in Slice 4): reuse it,
-   it reloads on changes. Otherwise run `cd apps/site && vp dev --port 5174 --strictPort`: `vp dev` at the
-   repo root serves no Worker. Never kill a server you didn't start.
+1. `git fetch origin && git switch main && git pull`, then `git switch -c feat/reactions`. Slice 4.1 should be
+   merged by then; check with `git log origin/main --oneline -3`. If it isn't and the user wants to continue
+   anyway, branch from `feat/cache`. Don't use the `gh` API heavily if it is rate limited; `git` over SSH is
+   unaffected.
+2. Read `AGENTS.md`, the Cross-slice rules, the "Slice 2", "Slice 3" and "Slice 4.1" Working Notes and the Slice 5
+   section above. Then ARCHITECTURE §7.1 (React), §8.4, §8.7 and §15, and `db/queries.ts` (`createPost()`,
+   `deletePost()`: the batch pattern to copy; raw `sql` items with parameters can't go in a D1 batch). The
+   open questions the earlier notes left for this slice: the `422 invalid_emoji` vs `checkReaction` codes
+   mapping, and whether deleting a post should give the reactors their hourly quota back (Slice 3 notes).
+3. `vp test` should report 702 passing before you change anything. If a reaction rebuilds `latest`, use
+   `rebuildAndPurgeLatest()` (Slice 4.1 notes). Test concurrency with `Promise.all` on the query function, and
+   any stale-write rebuild with `lateDb()`.
+   For a live server, a `mise run dev` one may already be running on :5173: reuse it, it reloads on changes.
+   Otherwise run `cd apps/site && vp dev --port 5174 --strictPort`: `vp dev` at the repo root serves no Worker.
+   Never kill a server you didn't start. The local Cache API persists across restarts (`mise run db:reset`
+   clears it).
 4. Ask the user before touching `wrangler.jsonc` bindings.
-5. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this
-   file's Slice 4.1 is `[x]` with the exact commands under Working Notes, and `Next Slice` points at
-   Slice 5.
+5. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this file's
+   Slice 5 is `[x]` with the exact commands under Working Notes, and `Next Slice` points at Slice 6.

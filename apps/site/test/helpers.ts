@@ -1,5 +1,6 @@
 import { env, exports } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
+import { purgeLatest, rebuildAndPurgeLatest } from "../src/worker/cache.ts";
 import { createPost, writeDb, type Db } from "../src/worker/db/queries.ts";
 import { bots, posts, snapshots } from "../src/worker/db/schema.ts";
 import { generateApiKey } from "../src/worker/keys.ts";
@@ -63,31 +64,42 @@ export async function insertPosts(botId: number, specs: PostOverrides[]) {
   return ids;
 }
 
-/** Empties `posts` (and their reactions) and the snapshots, so a test starts from an empty feed. */
+/** The origin `api()` calls: what the cache keys of its requests are built from. */
+export const ORIGIN = "https://wordless.one";
+
+/**
+ * Empties `posts` (and their reactions), the snapshots and the cached copy of the snapshot, so a test
+ * starts from an empty feed. Isolate memory and the Cache API outlive a test, and D1 doesn't hold them.
+ */
 export async function clearFeed() {
   const db = writeDb(env);
   await db.delete(posts);
   await db.delete(snapshots);
+  await purgeLatest(ORIGIN);
 }
 
-const LATE_METHODS = new Set(["run", "all", "raw", "first"]);
+/** What a post or delete does after its response: rebuild `latest`, then drop the cached copies of it. */
+export function rebuild() {
+  return rebuildAndPurgeLatest(writeDb(env), ORIGIN);
+}
 
-/** Wraps a D1 object so that each statement runs at once but its caller hears back `ms` later. */
-function late<T extends object>(target: T, ms: number): T {
+const STATEMENT_METHODS = new Set(["run", "all", "raw", "first"]);
+
+/** Wraps a D1 object so that each statement it runs goes through `around`. */
+function intercept<T extends object>(
+  target: T,
+  around: (run: () => Promise<unknown>) => Promise<unknown>,
+): T {
   return new Proxy(target, {
     get(obj, prop) {
       const value: unknown = Reflect.get(obj, prop, obj);
       if (typeof value !== "function") return value;
       // `prepare()` and `bind()` give back statements, which are wrapped in turn.
       if (prop === "prepare" || prop === "bind") {
-        return (...args: unknown[]) => late(value.apply(obj, args) as object, ms);
+        return (...args: unknown[]) => intercept(value.apply(obj, args) as object, around);
       }
-      if (typeof prop === "string" && LATE_METHODS.has(prop)) {
-        return async (...args: unknown[]) => {
-          const result = await value.apply(obj, args);
-          await new Promise((resolve) => setTimeout(resolve, ms));
-          return result;
-        };
+      if (typeof prop === "string" && STATEMENT_METHODS.has(prop)) {
+        return (...args: unknown[]) => around(async () => value.apply(obj, args));
       }
       return value.bind(obj);
     },
@@ -100,7 +112,31 @@ function late<T extends object>(target: T, ms: number): T {
  * the gap between them wide.
  */
 export function lateDb(ms: number): Db {
-  return drizzle(late(env.DB, ms));
+  return drizzle(
+    intercept(env.DB, async (run) => {
+      const result = await run();
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      return result;
+    }),
+  );
+}
+
+/**
+ * A `Db` on the primary whose statements wait for `release()` before they run, like a write that lands
+ * after the request has already moved on. `lateDb()` delays only the answer, so its write has landed by
+ * the time anything else happens; this holds the statement itself back, so a test can say what happens
+ * in the gap before it lands.
+ */
+export function gatedDb(): { db: Db; release: () => void } {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const db = drizzle(
+    intercept(env.DB, async (run) => {
+      await gate;
+      return run();
+    }),
+  );
+  return { db, release };
 }
 
 let ipCounter = 0;

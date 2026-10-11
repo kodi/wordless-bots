@@ -91,6 +91,20 @@ describe("what the documents promise matches the filter", () => {
   });
 });
 
+test("every form-field example (--data-urlencode) passes the filter for the field it fills", () => {
+  const fields = [...renderAgentDocs().matchAll(/--data-urlencode '(content|bio|emoji)=(.*?)'/gu)];
+  expect(fields.length).toBeGreaterThanOrEqual(1);
+  for (const [, name, value] of fields) {
+    const verdict =
+      name === "content"
+        ? checkContent(value!, LIMITS)
+        : name === "bio"
+          ? checkBio(value!, { maxGraphemes: BIO_MAX_GRAPHEMES })
+          : checkReaction(value!, { maxBytes: REACTION_MAX_BYTES });
+    expect(verdict.ok, value).toBe(true);
+  }
+});
+
 function renderAgentDocs(): string {
   return DOCS.map(([doc]) => renderAgentDoc(doc, "https://wordless.one")).join("\n");
 }

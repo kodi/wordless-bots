@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-12 (end of the Slice 11 session: admin endpoints and CLI).
+Last updated: 2026-10-12 (end of the Slice 12 session: the form fallback).
 
 ## Summary
 
@@ -27,7 +27,7 @@ deploy.
   statuses and `Next Slice`.
 - Tests: only ones that can fail for a real regression (AGENTS.md "Tests"). Do a mutation check for
   anything non-trivial: break the code, watch the test fail, restore. Record it in the PR.
-- Error responses go through `apiError()` (`http.ts`), bodies through `readJson()` with zod. New
+- Error responses go through `apiError()` (`http.ts`), bodies through `readBody()` (JSON or a form) with zod. New
   public routes set the §10.1 `Cache-Control`. Anything that returns a key is `private, no-store`.
 - Commits are Conventional Commits. PR bodies follow #3 and #4: intro line, "What's in it",
   "Decisions worth a look", "Out of scope", "Tests".
@@ -75,13 +75,16 @@ Merged on `main`:
 
 - #15 Slice 10 agent docs (merged as `3060753`): `/llms.txt`, `/skill.md`, `/heartbeat.md`, `agent-docs.ts`, `docsUrl()`.
 
-- Slice 11 admin endpoints and CLI is on `feat/admin` (PR #16, in review): `/api/admin/*`, `requireAdmin`, `db/admin.ts`,
+- #16 Slice 11 admin endpoints and CLI (merged as `8909b7e`): `/api/admin/*`, `requireAdmin`, `db/admin.ts`,
   `scripts/admin.ts` (`pnpm admin`), `ADMIN_TOKEN` in `secrets.required`.
 
-Open: the Slice 11 PR (#16). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+- Slice 12 form fallback is on `feat/form-fallback` (PR #17, in review): `readBody()`, the `api_key` form field in `requireBot`, `POST /reactions`,
+  `GET /act`, `formFallback` (`form.ts`), `act.ts`.
 
-Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
-`api.ts` (all `/api/v1` routes so far, and `sendRecovery()`), `admin.ts` (the `/api/admin` routes), `auth.ts` (`requireBot`, `requireAdmin`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
+Open: the Slice 12 PR (#17). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+
+Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers; also `GET /act`),
+`api.ts` (all `/api/v1` routes so far, `putReaction()` and `sendRecovery()`), `act.ts` (`actPage()`, `resultPage()`, `escapeHtml()`), `form.ts` (`formFallback`, `prefersHtml()`), `admin.ts` (the `/api/admin` routes), `auth.ts` (`requireBot`, `requireAdmin`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
 `agent-docs.ts` (`renderDoc()`, `renderAgentDoc()`, `agentDocResponse()`; the templates are in `agent-docs/`), `ip-hash.ts` (`keys.ts` also has `generateRecoveryToken()` and `hashRecoveryToken()`), `serialize.ts` (`iso()`, `serializePost()`, `serializeReactions()`, `serializeProfile()`), `feed.ts` (`latestPage()`, the pure paging
 and gap rules), `cache.ts` (L0 and L1: `readLatestCached()`, `cachedResponse()`, `purgeLatest()`,
 `purgePost()`, `purgeProfile()`, `rebuildAndPurgeLatest()` and the `latestKey()`, `feedBeforeKey()`, `postKey()`, `topKey()`,
@@ -99,35 +102,40 @@ its response: rebuild `latest`, then purge; use it instead of calling `rebuildLa
 `lateDb()` (a `Db` whose answers arrive late; for stale-write races), `gatedDb()` (a `Db` whose statements
 wait for `release()`; for what happens before a write lands), `ORIGIN`, `api()` and `nextIp()` in
 `helpers.ts`. `http.ts` has
-`apiError()`, `readJson()`, `readQuery()` and `intParam()` (zod query params in canonical spelling),
+`apiError()`, `readBody()` (JSON or a urlencoded form; was `readJson()`), `isFormRequest()`, `formFields()`, `readQuery()` and `intParam()` (zod query params in canonical spelling),
 `docsUrl(origin)` (the `X-Wordless-Docs` value), `tooManyRequests()` (`429` with `Retry-After` and `retry_after_s`; reuse it for `429 cooldown` and
 reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsername()` (the normalized username of a URL segment, or
 `undefined`) and `publicCache(c, ttlS)` (the
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 879 tests (57 shared, 506 wordfilter, 316 worker) on the Slice 11 branch; 861 (298 worker) on `main` at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
+Baseline: `vp test` runs 915 tests (57 shared, 506 wordfilter, 352 worker) on the Slice 12 branch; 879 (316 worker) on `main` at `8909b7e`; 861 (298 worker) at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
 `fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
-Not built yet: form
-fallback, burst rate limits (the register hourly limit exists), all of the real UI,
+Not built yet: burst rate limits (the register hourly limit exists), all of the real UI,
 Analytics Engine events.
 
 Infra reality:
 
 - No code is deployed. The Workers `wordless` and `wordless-staging` exist only as empty
-  placeholders that `wrangler secret put` created, and **`IP_HASH_SECRET` is set on both** (the user
-  ran it on 2026-10-11; `wrangler secret list` shows it for prod with `--env=""` and for `--env
-  staging`). Later secrets follow ARCHITECTURE §14.
-- `wrangler.jsonc` has `DB`, `ASSETS`, `EMAIL` (`send_email`, since Slice 9, approved by the user on 2026-10-11, top level and `env.staging`), the `secrets.required` list (`IP_HASH_SECRET` and, since Slice 11, `ADMIN_TOKEN`; the Cloudflare copy of `ADMIN_TOKEN` is not set yet), observability and (since Slice 6, approved by
+  placeholders that `wrangler secret put` created, and **`IP_HASH_SECRET` and `ADMIN_TOKEN` are set on both** (the
+  user ran `IP_HASH_SECRET` on 2026-10-11; `ADMIN_TOKEN` was set on 2026-10-12, piped from Doppler, `prd` to the top level
+  and `stg` to `--env staging`, and confirmed by name with `wrangler secret list`; the values were never read). Later secrets
+  follow ARCHITECTURE §14.
+- The Cloudflare account is `9c3a154e782240a5afd623d860e4fae6` (`wrangler whoami`). It owns both D1 databases and both
+  Workers' secrets.
+- Workers Paid and R2 paid are active, **by the user's word (2026-10-12), not verified on the account**. A recovery mail to a non-verified
+  address at the first staging deploy is the confirmation (Open Question 2).
+- `wrangler.jsonc` has `DB`, `ASSETS`, `EMAIL` (`send_email`, since Slice 9, approved by the user on 2026-10-11, top level and `env.staging`), the `secrets.required` list (`IP_HASH_SECRET` and, since Slice 11, `ADMIN_TOKEN`; both are set as Cloudflare secrets on both Workers), observability and (since Slice 6, approved by
   the user on 2026-10-11) `triggers.crons: ["* * * * *"]` at the top level and in `env.staging`. No `ratelimits` or
   `analytics_engine_datasets`.
 - CI runs only `vp check`. **Tests and build are not in CI** (§14 says the PR pipeline should be
   check → test → build).
 - The prod and staging D1 ids in `wrangler.jsonc` are filled in. Whether the databases hold the
   migrations is unverified.
-- Email Sending is enabled for `wordless.one` (account tag `132abfb887f74b398992af69fad0eaed`), and
+- Email Sending is enabled for `wordless.one` (its Email Sending domain tag is `132abfb887f74b398992af69fad0eaed`, from
+  `pnpm exec wrangler email sending list`; it is not an account id), and
   its five DNS records (3 MX, SPF, DKIM, `_dmarc`) are in the zone and resolve (checked with `dig` against
   `henrik.ns.cloudflare.com` and 1.1.1.1 on 2026-10-11; ARCHITECTURE §12). The `EMAIL` binding exists (Slice 9).
 
@@ -167,7 +175,8 @@ Infra reality:
   `p=reject`). `dig` against `henrik.ns.cloudflare.com` and 1.1.1.1 returned nothing for all of
   them, even after a retry 20 s later: **the CLI does not create the DNS records**. They have to be
   added in the dashboard (or with an API token that can edit DNS). Not done by me: no DNS token.
-- Not verified: whether the account is on Workers Paid (needed to send to arbitrary recipients).
+- Not verified: whether the account is on Workers Paid (needed to send to arbitrary recipients). (The user later said it is, on 2026-10-12;
+  see Open Question 2.)
 - The user then ran `secret put IP_HASH_SECRET` for prod and staging. Wrangler asked to create the
   missing Worker (non-interactive fallback: yes) and uploaded the secret, so no deploy was needed
   first. I confirmed with `wrangler secret list` for both environments. Prod needs `--env=""` to
@@ -987,7 +996,7 @@ Findings:
   subquery built with the builder (`eq(recoveryTokens.botId, bots.id)`) renders qualified names correctly.
 - `wrangler dev` does not print a simulated mail's body, only file paths.
 - `wrangler whoami` shows one account id, `9c3a154e...`, which is not the "account tag" `132abfb8...` recorded under Infra reality for Email
-  Sending. Unexplained (they may be different identifiers); worth a look before Slice 14.
+  Sending. Resolved in the Slice 12 session: `132abfb8…` is the Email Sending domain tag, not an account id (see Infra reality).
 - The `email_in_use` hint had no "recover isn't built yet" caveat to remove; it already pointed at `/api/v1/recover`.
 - A mistake of mine worth a line: a stray `sqlite3` in a shell one-liner read stdin and hung the command for two minutes. A second: a text anchor in
   a plan-editing script matched an older slice's identical sentence and wiped the Slice 5 to 8 notes from the plan; caught from the diff stat
@@ -1063,7 +1072,7 @@ Findings and mistakes:
 
 ### 2026-10-12, Slice 11 session (admin endpoints and CLI)
 
-Done on branch `feat/admin`, branched from `main` at `3060753`. The first commit fixed the stale Slice 10 statuses and the baseline. New: `admin.ts`,
+Done on branch `feat/admin`, branched from `main` at `3060753` (merged as `8909b7e`, #16). The first commit fixed the stale Slice 10 statuses and the baseline. New: `admin.ts`,
 `db/admin.ts`, `scripts/admin.ts`, `test/admin.test.ts`, `requireAdmin` and `sameSecret()`. No dependency, no migration, no binding. `ADMIN_TOKEN` joined
 `secrets.required` (top level and `env.staging`) and `.dev.vars.example`; `pnpm --filter site cf-typegen` regenerated `Env`; the test token is bound in
 `apps/site/vite.config.ts`. Nothing was pushed to Cloudflare, and the Doppler values were never read (tests and the live check use throwaway tokens).
@@ -1121,8 +1130,79 @@ Findings and mistakes:
 - `vp run admin -- --help` passes the `--` through; `parseArgs` would treat the rest as positional, so the CLI drops a leading `--`.
 - Not changed, as instructed: the Rate Limiting binding (Slice 1.1), tests in CI (Slice A), `/top` purging, DNS, Workers Paid, any Cloudflare secret, and the agent docs
   (admin endpoints are not for bots, so `skill.md` doesn't mention them).
-- Carried: Workers Paid unverified (Open Question 2); `wrangler whoami` shows account `9c3a154e…`, which differs from `132abfb8…` in this file; Slice 14 keeps the
-  leftover DNS records and the rule that Worker routes must be exact hostnames.
+- Carried (as left by Slice 11; the first two are resolved, see Open Questions 2 and 4 and Infra reality): Workers Paid unverified; `wrangler whoami` shows
+  account `9c3a154e…`, which differs from `132abfb8…` in this file. Still carried: Slice 14 keeps the leftover DNS records and the rule that Worker
+  routes must be exact hostnames.
+
+### 2026-10-12, Slice 12 session (form fallback)
+
+Done on branch `feat/form-fallback`, branched from `main` at `8909b7e` (#16). The first commit (`3dd04d2`) fixed the stale Slice 11 statuses, recorded the
+`ADMIN_TOKEN` secrets on Cloudflare, the account id and Workers Paid (by the user's word). No binding, no dependency, no migration, no new var. New: `act.ts`,
+`form.ts`, `test/form.test.ts`. Changed: `http.ts` (`readJson()` became `readBody()`), `auth.ts`, `api.ts`, `index.ts`, the three agent documents.
+
+- Design (all in ARCHITECTURE §8.6 and decision 46):
+  - **Forms in**: `readBody()` takes JSON or `application/x-www-form-urlencoded` and hands zod the same shape, so every route that read a JSON body takes a form,
+    with the same schema and the same errors. A body labelled as a form that starts with `{` is read as JSON: `curl -d '{...}'` sends that content type and
+    worked before, so a form-only reading would have broken it (tested).
+  - **The key**: `requireBot` reads the Bearer header first and, if there is none, the `api_key` field (trimmed). Nothing is read from the query string, and `/act`
+    never echoes it. The body is read with `arrayBuffer()`, not `.text()`: workerd logs a warning for `.text()` on a form body, and Hono's `json()` re-wraps with
+    the original content type, so the mislabelled-JSON path parses the decoded buffer itself.
+  - **React**: a browser form can only `POST` and can't build `/posts/:id/reaction` from a field, so `POST /reactions {post_id, emoji}` is the form spelling. Both
+    routes call `putReaction()`; nothing was forked. `post_id` is a string or number, trimmed, and must be canonical (`012` is `404`).
+  - **CSRF, decided**: there is no ambient credential (no cookie, no stored key), so a forged form needs the key itself, and whoever has the key can call the API.
+    What a stranger's page could still do is borrow a visitor's browser and IP: register bots against their signup quota, or probe the filter. The gate: a form
+    request whose `Origin` is present and isn't this origin (a sandboxed page's `null` included) is `403 cross_origin` before anything runs; requests without
+    `Origin` (curl, tools) pass. No tokens. **Known gap, not closed**: JSON endpoints never check `Content-Type`, so a cross-site `text/plain` post with a JSON body
+    still reaches `/register` and the rest, as it did before this slice. Checking `Origin` on every write would close it; I didn't, because it changes the JSON path
+    that this slice was asked to leave alone. Worth a decision.
+  - **Result page**: when the form request's `Accept` prefers `text/html` (`prefersHtml()`: html has a higher q than json and at least a wildcard's), the answer is
+    rewrapped in a minimal page with the same status and headers (`Retry-After` survives), the exact JSON in an escaped `<pre>`, `private, no-store`, a CSP of
+    `default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'`, `no-referrer`, `noindex`. Tools (`*/*`, no header) and JSON requests keep
+    JSON; a `204` has no page. Hono's `c.res` setter copies the old response's headers over the new one's, so for authed routes the old `no-store` wins and mine
+    only matters on `/register` errors (tested there).
+  - **`GET /act`**: three `method="post"` forms (register, post, react), limits from `packages/shared`, no script or style, `Cache-Control: public, max-age=300`.
+- Docs: skill.md has a section "No curl? Use the forms", a `--data-urlencode` example, the `cross_origin` row and `api_key` in the 400/401 rows; heartbeat.md says
+  how a browse-only task does each step (no `/me` there, so the cooldown comes from the `429`); llms.txt links `/act`. ARCHITECTURE: §4 layout, §6.2, §8 intro, §8.1,
+  §8.4 (`POST /reactions`), §8.6 (rewritten), §11, decision 46, and the header status.
+- Tests (36 new, 879 to 915; 35 in `test/form.test.ts`, 1 in `agent-docs.test.ts`): forms register, post (CRLF from a textarea), rotate; the filter and the cooldown by form;
+  a charset on the content type; mislabelled JSON; key never from the URL (form post, and `/act`); unknown, empty, banned keys; a padded key; header over body; `POST /reactions`
+  (form, JSON with a number, padded and non-canonical ids, filter, self, missing field); cross-origin forms (five foreign origins, register included, nothing written)
+  and JSON unaffected; result page (headers, status, `Retry-After`, escaping, no page for a `204`, `no-store` on a keyless error, JSON for tools); `prefersHtml` (13 rows);
+  `/act` (its forms are parsed from the HTML and **submitted** with values a person would type, so a renamed field fails; GET writes nothing); skill.md's `--data-urlencode`
+  examples against the filter.
+
+Verified (all from the repo root):
+
+- `vp check --no-fmt`: clean (74 files). `vp fmt` run on `apps/site/src/worker`, `apps/site/test` and `docs/` files only (plain `vp check` still fails on the user's `docs/design/`).
+- `vp test`: 33 files, **915 passed** (879 + 36). No workerd warnings in the output.
+- `vp run -r build`: passed (Worker 123.52 kB gzip, up from 118.80; SPA 94.96 kB gzip).
+- Mutation checks, each reverted (a script in the job tmp dir backs a file up, applies one change, runs `vp test apps/site/test/form.test.ts apps/site/test/auth.test.ts`, restores):
+  31 of 31 caught after fixes. Key also read from the query string (2 failing), the form fallback removed from `requireBot` (14), body key over header (1), key not trimmed (2),
+  empty key accepted (1), Origin gate removed (1), `null` allowed (1), Origin prefix match (1), host-only match (1), `prefersHtml` tie goes to HTML (2), q ignored (3), wildcard
+  ignored (1), page loses the status (3), `204` gets a page (1), HTML for every client (9), result page cacheable (1), no CSP (2), `<`, `&` and `>` each unescaped (1 each),
+  mislabelled JSON read as a form (1), forms not read (15), exact content-type match (1), `/act` post form made a GET (1), react field renamed (1), `post_id` not trimmed (1),
+  not canonical (1), `/reactions` skipping the filter (1), middleware not mounted (5), `/act` echoing the query (2), skill.md's example made a word (1, in `agent-docs.test.ts`).
+  **Three survived the first run and got tests**: the wildcard rule (`text/html;q=0.5, */*`), the result page's own `Cache-Control` (hidden by the old response's header on authed routes; now
+  asserted on a `/register` error), and the `Origin` lookalikes (`https://wordless.one.evil.example`, `http://wordless.one`). Two mutants were built wrongly and redone (the `/act` GET form, the
+  query echo), and one (`includes("form")` for the content type) is unobservable (a multipart body is a `400` either way) and was dropped.
+- Live check on my own dev server (`cd apps/site && vp dev --port 5174 --strictPort`, stopped by pid 16906; the user's :5173, pid 53728, was left alone), with curl: `GET /act` (headers; the
+  page doesn't contain a key sent in its query); register as a browser (`Accept: text/html`, same `Origin`): `201` HTML page with the key, `private, no-store`, the CSP; register, post
+  (a two-line `--data-urlencode` body), validate and rotate as a tool: JSON; the post as a browser a second time: `429`, `Retry-After: 3300`, `<h1>Error (429)</h1>`; `contains_words`
+  with offsets; a key only in the query string: `missing_api_key`; a foreign `Origin`: `cross_origin`; `curl -d '{...}'` with a Bearer header: still works; react by form as a
+  browser (`200`, `total: 1`), by JSON with a numeric `post_id` (a swap), self-reaction `403`; the rotation killed the old key; `skill.md` mentions `/act` and `heartbeat.md` no longer says "not available yet".
+  Cleanup: the `formprobe_%` bots, their posts and reactions, and the `latest` snapshot row that held a probe post, deleted from the local D1 with scoped `WHERE` statements; all five
+  tables checked empty afterwards (`snapshots` holds the `top24` row).
+
+Findings and mistakes:
+
+- My first pass at the tests read the result page's `<pre>` raw; `escapeHtml()` escaped quotes too, which made the JSON in the page source unreadable (`&quot;`). It now escapes `& < >` only (an
+  element's content, never an attribute), so an agent that reads the HTML source sees plain JSON.
+- Parsing a form with `c.req.text()` makes workerd warn on every request; so does Hono's `json()` after a cached body, because it re-wraps with the original content type. Fixed as described above.
+- A live-check mistake: I captured a registration response with `grep -o 'wl_...'` and no `head -1`; the response holds several `wl_` strings (the `store_credentials` text), so the variable was
+  multi-line and the follow-up calls failed. The API was fine; re-ran with `head -1`.
+- The user's note put the `send_email` bullet in "§14"; it is in §12 (and I updated it there).
+- Not changed, as instructed: the Rate Limiting binding (Slice 1.1), `/top` purging, DNS, any other Cloudflare secret or binding, the admin endpoints (still out of skill.md).
+- Carried: Slice 14 still needs the first deploy, remote migrations, custom domains and DNS (the leftover records and the exact-hostname rule are above), and the recovery-mail check to a non-verified address.
 
 ## Open Questions
 
@@ -1131,14 +1211,14 @@ Ask the user rather than assuming:
 1. **Rate Limiting binding** (`ratelimits` in `wrangler.jsonc`): approved? Three `TODO(§8.7)`
    comments in `api.ts` (register 3/min, `/usernames/check`, `/validate`) are waiting on this.
    Blocks Slice 1.1 only.
-2. **Cloudflare Email Service** (ARCHITECTURE §19.1): sending is enabled, the five DNS records are in the zone and the `EMAIL`
-   binding exists (2026-10-11). **Still open: whether the account is on Workers Paid**, which sending to arbitrary recipients needs.
-   The Slice 9 test mail went to the user's own address and was accepted ("Queued for"), which does **not** settle it: an account
-   owner's address may be a verified destination on the free plan. Settle it in the dashboard (Billing) or with a mail to a
-   second, unverified address. The fallback is Resend behind the same `EmailSender` interface; switching needs the user's go-ahead.
+2. ~~**Cloudflare Email Service** (ARCHITECTURE §19.1)~~ Resolved by the user's word, 2026-10-12: Workers Paid and R2 paid are active. **Not
+   verified on the account**; a recovery mail to a non-verified address at the first staging deploy (Slice 14) is the confirmation. Sending is
+   enabled, the five DNS records are in the zone and the `EMAIL` binding exists (2026-10-11). The Slice 9 test mail went to the user's own
+   address and was accepted ("Queued for"), which settles nothing: an account owner's address may be a verified destination on the free plan.
+   The fallback is Resend behind the same `EmailSender` interface; switching needs the user's go-ahead.
 3. ~~JS budget vs React~~ Resolved 2026-10-11: React stays, budget is 130 KB gzip.
-4. **First deploy** of staging and prod (Slice 14), and who sets any new remote secrets. `IP_HASH_SECRET` is already set on both.
-   `ADMIN_TOKEN` is generated and in Doppler (`wordless`, `stg` and `prd`, 2026-10-12) and listed in `secrets.required` (Slice 11), but **not yet a Cloudflare secret**; ask before `wrangler secret put`.
+4. **First deploy** of staging and prod (Slice 14); only that remains. `IP_HASH_SECRET` and `ADMIN_TOKEN` are set on both Workers
+   (`ADMIN_TOKEN` on 2026-10-12, from Doppler `prd` to the top level and `stg` to `--env staging`). Ask before any new `wrangler secret put`.
 5. ~~Cron triggers~~ Resolved 2026-10-11: the user approved `triggers.crons: ["* * * * *"]` (Slice 6).
 6. ~~What `cursor` is when the feed is empty.~~ Resolved in Slice 4: it echoes the caller's `since`, or
    `0` with none (ARCHITECTURE §8.1).
@@ -1375,23 +1455,25 @@ filled from `packages/shared`; `DOCS_URL` became `docsUrl(origin)` (no new var).
 
 ### Slice 11: admin endpoints and CLI
 
-Status: `[x]` Done and verified on `feat/admin`. See Working Notes 2026-10-12, Slice 11 session.
+Status: `[x]` Done and verified; merged as `8909b7e` (#16). See Working Notes 2026-10-12, Slice 11 session.
 
 - `/api/admin/*` with `ADMIN_TOKEN` (add it to `secrets.required` and `.dev.vars.example`) and
   `scripts/admin.ts`. Ban hides all of the bot's posts and rebuilds snapshots.
 - **The token exists already** (user's go-ahead, 2026-10-12): Doppler project `wordless`, configs `stg` and `prd`, secret `ADMIN_TOKEN`, a
   different 64-hex value in each, generated locally. Read it with `doppler secrets get ADMIN_TOKEN --project wordless --config stg --plain`
   (use `prd` for production) and never print it. `scripts/admin.ts` can read it from `doppler run` or the environment. The Cloudflare copy
-  (`wrangler secret put ADMIN_TOKEN`, and `--env staging`) is not set yet: do it at the first deploy (Slice 14), piping the value from
-  Doppler, and ask first. A local `.dev.vars` value stays a throwaway (nothing was added to the Doppler `dev` config).
+  (`wrangler secret put ADMIN_TOKEN`, and `--env staging`) was set on both Workers on 2026-10-12, piped from Doppler (`prd` to the top level,
+  `stg` to `--env staging`) and confirmed by name with `wrangler secret list`. A local `.dev.vars` value stays a throwaway (nothing was added to the Doppler `dev` config).
 
 ### Slice 12: form fallback
 
-Status: `[ ]`
+Status: `[x]` Done and verified on `feat/form-fallback` (PR #17). See Working Notes 2026-10-12, Slice 12 session. Differences from the sketch
+below: a form can't reach `PUT /posts/:id/reaction`, so react is `POST /reactions {post_id, emoji}` (same code); forms are gated by `Origin`
+(`403 cross_origin`), not tokens; a body labelled as a form that starts with `{` stays JSON.
 
 - Form-encoded writes with `api_key` in the body, and the no-JS `GET /act` page (§8.6). Never accept
   keys in URLs.
-- Update `skill.md` and `heartbeat.md` in the same PR: both now say a form fallback "is not available yet" (hosted-assistants paragraph
+- Update `skill.md` and `heartbeat.md` in the same PR: both said a form fallback "is not available yet" (hosted-assistants paragraph
   in `heartbeat.md`, and §11 of ARCHITECTURE). `test/agent-docs.test.ts` checks their examples against the filter.
 
 ### Slice 13: the web UI (several PRs)
@@ -1406,8 +1488,9 @@ Status: `[ ]` React stays and the JS budget is 130 KB gzip (decided 2026-10-11).
 
 Status: `[ ]`
 
-- Staging deploy on push to `main`, prod on tag, remote migrations, first-deploy secrets, custom
-  domains and DNS (§14). Needs the user's Cloudflare credentials in GitHub secrets.
+- Staging deploy on push to `main`, prod on tag, remote migrations, custom
+  domains and DNS (§14). The secrets step is done (`IP_HASH_SECRET` and `ADMIN_TOKEN` are on both Workers). The first staging deploy also
+  confirms Workers Paid: a recovery mail to a non-verified address must be accepted (Open Question 2). Needs the user's Cloudflare credentials in GitHub secrets.
 - **Ask the user before touching DNS.** The zone still holds records that look left over from the old host (reported 2026-10-12; `dig` only
   shows Cloudflare's proxy IPs, so the origins aren't visible from outside): an apex `A` record `wordless.one` to `46.101.96.143` (proxied), a
   wildcard `*.wordless.one` to the same address, and a `www` `CNAME` to a GoDaddy host (the exact target wasn't recorded; read it in the
@@ -1431,16 +1514,17 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 12: form fallback** (ARCHITECTURE §8.6): form-encoded writes with `api_key` in the body, and the no-JS `GET /act` page. Never accept keys in URLs.
-It must also update `skill.md` and `heartbeat.md`, which say the fallback "is not available yet" (see the Slice 12 section), and ARCHITECTURE §11.
-Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the Rate Limiting binding (Open Question 1). Workers Paid is
-unverified (Open Question 2); it matters for production recovery mail. `AGENTS.md` is deliberately unchanged, so the user will point you at this file.
+**Slice 13a: the web UI's router and feed view** (the first of the Slice 13 PRs): TanStack Router (code-based routes) and a feed view that reads the API (`/api/v1/feed`),
+as ARCHITECTURE §9.1 and §9.3 describe. The SPA is still the scaffold's hello-world, and the JS budget is 130 KB gzip (it is 94.96 KB now). Read §9 in full first. Do not start 13b to
+13e in the same PR (boot-data injection, polling, the other pages, styles).
+Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the Rate Limiting binding (Open Question 1). Workers Paid is the user's word, not
+verified (Open Question 2); the first staging deploy confirms it. `AGENTS.md` is deliberately unchanged, so the user will point you at this file.
 
-Start here (Slice 12):
+Start here (Slice 13a):
 
-1. `git fetch origin && git switch main && git pull`, then branch. Slice 11 should be merged by then; check with `git log origin/main --oneline -3`.
-2. Read `AGENTS.md`, the Cross-slice rules, the Slice 11 Working Notes, the Slice 12 section above, and ARCHITECTURE §8.6, §11 and §6.2.
-3. `vp test` should report 879 passing before you change anything (if Slice 11 is merged).
-4. Done when `vp check --no-fmt`, `vp test` and `vp run -r build` pass (plain `vp check` fails on the untracked `docs/design/` files until the user
-   formats or commits them), ARCHITECTURE matches the code, this file's Slice 12 is `[x]` with the exact commands under Working Notes, and `Next Slice`
-   points at Slice 13a.
+1. `git fetch origin && git switch main && git pull`, then branch. Slice 12 should be merged by then (check with `git log origin/main --oneline -3`); if it is not, say so and ask.
+2. Read `AGENTS.md`, the Cross-slice rules, the Slice 12 Working Notes, the Slice 13 section above, and ARCHITECTURE §9 and §10.
+3. `vp test` should report 915 passing before you change anything (if Slice 12 is merged).
+4. The `/act` page is plain server HTML and has no styles; the SPA doesn't own it (it is in `run_worker_first`).
+5. Done when `vp check --no-fmt`, `vp test` and `vp run -r build` pass (plain `vp check` fails on the untracked `docs/design/` files until the user formats or commits them),
+   ARCHITECTURE matches the code, and this file records 13a with the exact commands under Working Notes.

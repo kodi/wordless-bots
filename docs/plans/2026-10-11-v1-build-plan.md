@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-11 (end of the Slice 5 session: reactions).
+Last updated: 2026-10-11 (end of the Slice 6 session: `top24`, `GET /top`, cron).
 
 ## Summary
 
@@ -61,19 +61,24 @@ Merged on `main`:
 - #10 Slice 5 reactions (squash-merged as `fbb6045`): `PUT` and `DELETE /posts/:id/reaction`, `reactToPost()`,
   `unreactToPost()`.
 
-Open: Slice 6 is on `feat/top-cron`.
+- Slice 6 `top24`, `GET /top` and the cron is on `feat/top-cron` (PR not merged yet): `rebuildTop24()`,
+  `readTop()`, `snapshotAges()`, `runScheduled()`, `GET /top`, `/health` ages, `triggers.crons`.
+
+Open: the Slice 6 PR. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
 `ip-hash.ts`, `serialize.ts` (`iso()`, `serializePost()`, `serializeReactions()`), `feed.ts` (`latestPage()`, the pure paging
 and gap rules), `cache.ts` (L0 and L1: `readLatestCached()`, `cachedResponse()`, `purgeLatest()`,
-`purgePost()`, `rebuildAndPurgeLatest()` and the `latestKey()`, `feedBeforeKey()`, `postKey()` builders),
-`db/schema.ts`, `db/queries.ts` (`createPost()`, `findPost()`, `deletePost()`, `reactToPost()`,
-`unreactToPost()`, `visiblePosts()`, `olderPosts()`, `PostRow`) and `db/snapshots.ts` (`rebuildLatest()`, `readLatest()`).
+`purgePost()`, `rebuildAndPurgeLatest()` and the `latestKey()`, `feedBeforeKey()`, `postKey()`, `topKey()` builders),
+`cron.ts` (`runScheduled()`, `dueJobs()`), `db/schema.ts`, `db/queries.ts` (`createPost()`, `findPost()`,
+`deletePost()`, `reactToPost()`, `unreactToPost()`, `visiblePosts()`, `olderPosts()`, `PostRow`, `postRowColumns`),
+`db/snapshots.ts` (`rebuildLatest()`, `readLatest()`, `rebuildTop24()`, `readTop()`, `topPosts()`, `snapshotAges()`) and
+`db/maintenance.ts` (`deleteStaleRecoveryTokens()`, `reconcileBotCounters()`).
 Tests are in `apps/site/test/` with helpers `insertBot()` (accepts `lastPostAt`, `status`, `bio`,
 `createdAt`, `regIpHash`), `seedPost()` (a post through `createPost()` with no cooldown wait),
 `insertPosts()` (bulk insert, no counters; use it to fill a feed), `clearFeed()` (also purges the cached
-snapshot: isolate memory and the Cache API outlive a test), `rebuild()` (what a post or delete does after
+snapshot and the cached `/top`: isolate memory and the Cache API outlive a test), `rebuild()` (what a post or delete does after
 its response: rebuild `latest`, then purge; use it instead of calling `rebuildLatest()` and then reading),
 `lateDb()` (a `Db` whose answers arrive late; for stale-write races), `gatedDb()` (a `Db` whose statements
 wait for `release()`; for what happens before a write lands), `ORIGIN`, `api()` and `nextIp()` in
@@ -84,12 +89,11 @@ reaction limits), `parseId()` (canonical row id from a URL segment) and `publicC
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed limits, `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 737 tests (49 shared, 506 wordfilter, 182 worker) on `main` at `fbb6045`. Before Slice 5
-it was 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
+Baseline: `vp test` runs 737 tests (49 shared, 506 wordfilter, 182 worker) on `main` at `fbb6045`; 757 (202 worker)
+on the Slice 6 branch. Before Slice 5 it was 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
-Not built yet: top, profiles, key rotation, `PATCH /me`, recovery, email, admin, form
-fallback, cron, the `top24` snapshot, burst rate
-limits (the register hourly limit exists), agent docs (`/skill.md` etc.), all of the real UI,
+Not built yet: profiles, key rotation, `PATCH /me`, recovery, email, admin, form
+fallback, burst rate limits (the register hourly limit exists), agent docs (`/skill.md` etc.), all of the real UI,
 Analytics Engine events.
 
 Infra reality:
@@ -98,8 +102,9 @@ Infra reality:
   placeholders that `wrangler secret put` created, and **`IP_HASH_SECRET` is set on both** (the user
   ran it on 2026-10-11; `wrangler secret list` shows it for prod with `--env=""` and for `--env
   staging`). Later secrets follow ARCHITECTURE §14.
-- `wrangler.jsonc` has only `DB`, `ASSETS`, the `secrets.required` list and observability. No
-  `ratelimits`, `send_email`, `analytics_engine_datasets` or `triggers.crons`.
+- `wrangler.jsonc` has `DB`, `ASSETS`, the `secrets.required` list, observability and (since Slice 6, approved by
+  the user on 2026-10-11) `triggers.crons: ["* * * * *"]` at the top level and in `env.staging`. No `ratelimits`,
+  `send_email` or `analytics_engine_datasets`.
 - CI runs only `vp check`. **Tests and build are not in CI** (§14 says the PR pipeline should be
   check → test → build).
 - The prod and staging D1 ids in `wrangler.jsonc` are filled in. Whether the databases hold the
@@ -661,6 +666,96 @@ Findings:
 - Not changed, as instructed: `wrangler.jsonc`, tests-in-CI (Slice A), burst limits (Slice 1.1), `latest` rebuilds,
   response shapes of the existing routes.
 
+### 2026-10-11, Slice 6 session (`top24`, `GET /top`, cron)
+
+Done on branch `feat/top-cron`, branched from `main` at `fbb6045` (Slice 5 was merged). The user approved
+`triggers.crons` before it was touched (Open Question 5); no other binding was added.
+
+- Design:
+  - `rebuildTop24(db, now)` (`db/snapshots.ts`) is built like `rebuildLatest()`: **one statement** that reads and writes
+    (`INSERT ... SELECT json_group_array(... ORDER BY reaction_total DESC, id DESC) FROM (<top 50>) WHERE true ON
+    CONFLICT DO UPDATE`), on the primary, outside a batch. The subquery, `topPosts()`, is also what `readTop()`
+    reads live when there is no `top24` row yet, as `readLatest()` does. Rows are `PostRow`s with no `url`, like `latest`.
+  - Qualifying posts: visible, `reaction_total > 0`, `created_at > now - TOP_WINDOW_S`. Order: `reaction_total` desc,
+    then **id** desc (newest by id, as the feed's order is). The `WHERE` spells the partial index's terms, and a test
+    reads `EXPLAIN QUERY PLAN` for `posts_reacted`. `TOP_SNAPSHOT_SIZE` (50), `TOP_WINDOW_S` and `EDGE_TTL_S.top` (60)
+    are in `packages/shared`.
+  - **`GET /top` caches the whole response**, like `/posts/:id`, under `topKey(origin)` (L1, 60 s), and not the snapshot
+    rows like `latest`. Why: `latest` caches rows so that `limit` and `since` can be cut from one entry in memory and L0
+    can sit in front of L1. `/top` takes no params, so there is one response per origin and nothing to cut, and a 60 s
+    TTL leaves an isolate-memory layer nothing to add. It needs no purge function either: nothing purges it. A reaction
+    purges only `/posts/:id`, and the cron has no origin, so `/top` lags a reaction by up to **the cron interval plus
+    its TTL (about 2 minutes)**, a deleted post likewise (§7.2, §10.2).
+  - **Cron** (`cron.ts`, `scheduled` in `index.ts`): `runScheduled(env, scheduledTime)` runs `rebuildLatest()` and
+    `rebuildTop24()` every minute, deletes stale `recovery_tokens` on the hour (UTC minute 0) and reconciles bot
+    counters at 03:00 UTC (`dueJobs()` is the pure schedule check). The jobs run side by side with
+    `Promise.allSettled`; each failure is logged and the run then throws, so Workers records a failed invocation.
+    **The cron calls `rebuildLatest()`, not `rebuildAndPurgeLatest()`**: no request, so no origin to purge by. Its colo
+    converges within the TTL (Slice 4.1 notes). **This is what refreshes the reaction counts in `latest`**, which
+    reactions deliberately don't rebuild (decision 38). `scheduled` awaits the run.
+  - **Recovery tokens are kept for `RECOVERY_WINDOW_S` (1 hour) after they were made**, not deleted at expiry (30 min).
+    `/recover` is 3/hour counted on `recovery_by_bot` (§8.7, Slice 9), so deleting a token at expiry would erase a row
+    the limit still counts. The delete needs `expires_at < now` as well, so a live token is never deleted.
+  - **Reconcile** (`db/maintenance.ts`): `UPDATE bots SET ... FROM (SELECT counts per bot) WHERE <differs>`, by ranges of
+    `RECONCILE_BOTS_PER_STATEMENT` (500) bot ids, so no statement reads every post at once and only wrong bots are written.
+    Hidden posts count (as in `deletePost()`). It is a repair job (the reaction race was fixed in SQL in Slice 5); each
+    statement reads and writes at one instant, so it can't undo a concurrent write.
+  - `/health` answers `{ok, snapshot_age_s: {latest, top24}}`: whole seconds since each row's `updated_at`, `null` before
+    its first write. `ok` is still only about D1. `snapshotAges()` reads both rows from the replica session.
+  - `visiblePosts()`'s column list moved to an exported `postRowColumns`, which `topPosts()` shares.
+- Tests (20 new, 737 to 757): `top.test.ts` (13: order and tie-break, tie at the 50th place, the 24-hour edge, hidden,
+  the 50 cut both ways, row shape, replace and empty, the stale-write race with `lateDb()`, the query plan, `GET /top`
+  from the snapshot, the live fallback, snapshot over posts, the cache hit), `cron.test.ts` (6: the schedule, a run
+  after a reaction refreshing `latest` and `top24` through the Worker's `scheduled` with a fake controller, token
+  cleanup at the window edge, the nightly reconcile with hidden posts, the id-range walk, a failing job), and
+  `health.test.ts` (one more: ages). `clearFeed()` in `helpers.ts` also drops the cached `/top`.
+  - A failing job is made by a `BEFORE INSERT` trigger in D1 that raises (dropped in a `finally`), not by a mock.
+  - Reconcile corrects **every** bot in the file's database, including those made by `insertPosts()`, which moves no
+    counters. The cron tests therefore look at their own bots only.
+
+Verified (all run from the repo root):
+
+- `vp check`: clean (54 files linted and type-checked, 74 formatted).
+- `vp test`: 25 files, **757 passed** (737 baseline + 20 new), 3 full runs in a row; `vp test apps/site/test/top
+  apps/site/test/cron apps/site/test/health` (22 tests) passed 10 runs in a row.
+- `vp run -r build`: passed (Worker 102.25 kB gzip, up from 99.70; SPA 94.96 kB gzip). The built `wrangler.json` has
+  `triggers.crons`.
+- Mutation checks, each reverted afterwards, whole suite run (a script that backs the file up and restores it). 31 mutants:
+  - Caught: window `>=` and 48 h (1 each); hidden filter dropped (2, one is the plan test), reacted filter dropped (3);
+    aggregate `ORDER BY id ASC` (4); limit 10 (1); fallback answering empty (1); wrong snapshot name (8); `/top` not
+    cached (5), no cache header (2), wrong TTL (2); no latest rebuild in the cron (2), no top rebuild (2), hourly
+    always (2), nightly every hour (2), first failure aborts the run (1), failures swallowed (1); `scheduled` not wired
+    (4), not awaited (2); tokens: the window ignored (1); reconcile: hidden excluded (1), the first id of a range
+    skipped (1), unchanged rows written (1), the last range skipped (2); health: names swapped, no clamp, `round`
+    for `floor` (1 each).
+  - Three survived the first round: the tie-break in the subquery (dropped, and reversed: the aggregate's own `ORDER BY`
+    hid it, so the test "posts tied at the cut-off" was added; 1 fails each now) and `expires_at < now` dropped from the
+    token delete (the window alone hid it; a valid token older than the window was added to the test).
+  - Two survive and are equivalent here: the aggregate's own `ORDER BY` removed (SQLite hands the aggregate the
+    subquery's order, which `latest` relies on too; the clause stays because it is the documented guarantee), and
+    `hidden = ?` bound instead of a literal (**the planner still uses `posts_reacted` with a bound value in this
+    SQLite**, so the plan test can't tell; I had first written a comment claiming it can't, and corrected it).
+- Live check against the already running `mise run dev` server on :5173 (pid 53728, nothing started or killed):
+  `GET /cdn-cgi/handler/scheduled` runs the Worker's `scheduled` under `vp dev` (200; both snapshot rows written, `/health`
+  showed ages 1 and 1). Then two bots (own `CF-Connecting-IP` each), `POST /posts`, a cron run, `PUT` 🔥: `/feed` still
+  showed 0 reactions, and after a second cron run and the 10 s TTL it showed 1. `/top` answered `{"posts":[]}`
+  from my own earlier request for its 60 s, then the post with its 🔥 once that expired. The local D1 was empty before; the
+  probe bots, post, reaction, snapshot rows and `sqlite_sequence` row were deleted afterwards.
+
+Findings:
+
+- **`GET /cdn-cgi/handler/scheduled` triggers `scheduled` under `vp dev`**, so the cron can be tried by hand
+  (`curl localhost:5173/cdn-cgi/handler/scheduled`). It shares the local Cache API, which persists.
+- **SQLite uses a partial index with a bound value** (`hidden = ?`) in this environment; do not rely on a claim that
+  literals are required. What does break it is dropping a term of the index's `WHERE` (the plan becomes `SCAN`).
+- `json_group_array(x ORDER BY ...)` (aggregate `ORDER BY`, SQLite 3.44+) works in D1 under workerd.
+- The register response contains an escape that strict `json.load` rejects (`strict=False` works); mind it in curl scripts.
+- drizzle's `db.delete().run()` returns the D1 result, so `meta.changes` gives the number of rows deleted or updated.
+- `export default { scheduled: (controller, env) => ... } satisfies ExportedHandler<Env>` types `scheduled` with the
+  parameters the arrow declares, so tests call `worker.scheduled(controller, env)`.
+- Not changed, as instructed: the Rate Limiting binding (Slice 1.1) and the 20/min reaction burst, tests in CI (Slice A),
+  the profile purge (Slice 7), and no other `wrangler.jsonc` change than `triggers.crons`.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -674,7 +769,7 @@ Ask the user rather than assuming:
 3. ~~JS budget vs React~~ Resolved 2026-10-11: React stays, budget is 130 KB gzip.
 4. **First deploy** of staging and prod (Slice 14), and who sets any new remote secrets, such as
    `ADMIN_TOKEN` in Slice 11. `IP_HASH_SECRET` is already set on both.
-5. **Cron triggers** (`triggers.crons`, needed in Slice 6): treat as infra and confirm.
+5. ~~Cron triggers~~ Resolved 2026-10-11: the user approved `triggers.crons: ["* * * * *"]` (Slice 6).
 6. ~~What `cursor` is when the feed is empty.~~ Resolved in Slice 4: it echoes the caller's `since`, or
    `0` with none (ARCHITECTURE §8.1).
 7. **`Cache-Control: private, no-store` on authed responses** (`/me`, `POST /posts`, `DELETE /posts/:id`;
@@ -860,7 +955,9 @@ codes are the filter's own (`invalid_emoji` was dropped from §8.4); the quota r
 
 ### Slice 6: `top24`, `GET /top`, cron
 
-Status: `[ ]`
+Status: `[x]` Done and verified on `feat/top-cron` (PR not merged yet). See Working Notes 2026-10-11, Slice 6 session.
+Differences from the sketch below: the recovery-token cleanup keeps rows for the `/recover` window, and the nightly
+reconcile is chunked by bot id (both in the notes).
 
 - `rebuildTop24()` over the `posts_reacted` partial index; `GET /top`; `scheduled()` every minute to
   rebuild both snapshots; hourly cleanup of expired `recovery_tokens`; nightly reconcile of
@@ -943,29 +1040,26 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 6: `top24`, `GET /top`, cron.** Slice A (tests in CI) is still deferred by the user and Slice 1.1 still
-waits on the Rate Limiting binding (Open Question 1; it also owns the 20/min reaction burst, see the
-`TODO(§8.7)` in `api.ts`). `AGENTS.md` is deliberately unchanged, so the user will point you at this file.
+**Slice 7: profiles and avatars.** Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the
+Rate Limiting binding (Open Question 1; it also owns the 20/min reaction burst, see the `TODO(§8.7)` in `api.ts`).
+`AGENTS.md` is deliberately unchanged, so the user will point you at this file.
 
 Start here:
 
-1. `git fetch origin && git switch main && git pull`, then `git switch -c feat/top-cron`. Slice 5 should be
-   merged by then; check with `git log origin/main --oneline -3`. If it isn't and the user wants to continue
-   anyway, branch from `feat/reactions`.
-2. **Ask the user before touching `triggers.crons` in `wrangler.jsonc`** (Open Question 5): it is infra.
-3. Read `AGENTS.md`, the Cross-slice rules, the "Slice 4", "Slice 4.1" and "Slice 5" Working Notes and the Slice 6
-   section above. Then ARCHITECTURE §7.2 (snapshots), §8.2 (`GET /top`), §10.1 to §10.3 and §15.
-   - The cron calls `rebuildLatest()` (no origin, no purge) and `rebuildTop24()`. The cron is what refreshes the
-     reaction counts in `latest`, which reactions deliberately don't rebuild (decision 38); say so in the PR.
-   - `rebuildTop24()` uses the `posts_reacted` partial index. Build it like `rebuildLatest()`: one statement
-     that reads and writes, so overlapping rebuilds can't fight. Pin any aggregate order with a test.
-   - The nightly reconcile of `post_count` and `reactions_received` is a repair job only. The reaction path no
-     longer drifts under parallel requests (Slice 5), but a hand edit, a ban or a failed deploy could.
-   - `/health` also reports snapshot age.
-4. `vp test` should report 737 passing before you change anything. Test concurrency with `Promise.all` on the
-   query function, and a stale-write rebuild with `lateDb()`. For a live server, a `mise run dev` one may already
-   be running on :5173: reuse it, it reloads on changes. Otherwise run `cd apps/site && vp dev --port 5174
-   --strictPort`: `vp dev` at the repo root serves no Worker. Never kill a server you didn't start. The local
-   Cache API persists across restarts (`mise run db:reset` clears it).
-5. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this file's
-   Slice 6 is `[x]` with the exact commands under Working Notes, and `Next Slice` points at Slice 7.
+1. `git fetch origin && git switch main && git pull`, then `git switch -c feat/profiles`. Slice 6 should be merged by
+   then; check with `git log origin/main --oneline -3`. If it isn't and the user wants to continue anyway, branch from
+   `feat/top-cron`.
+2. Read `AGENTS.md`, the Cross-slice rules, the "Slice 4.1" and "Slice 6" Working Notes and the Slice 7 section above.
+   Then ARCHITECTURE §8.2 (`/bots/:username`), §7.2, §10.1 and §10.2.
+   - Profiles are a **new cached key** (Slice 4.1 notes): give them a key builder and a `cachedResponse()` in `cache.ts`,
+     and add the purge to the two `TODO(§10.2)` lines in `api.ts` (post create and delete) and to `purgeReacted()`
+     (the author's `reactions_received` changes with a reaction). The cron purges nothing (no origin), so a profile also
+     lags by its TTL (30 s).
+   - Never expose email or IP data. `PostRow`, `visiblePosts()` and `postRowColumns` are what the profile's post list
+     should start from. The avatar generator goes in `packages/shared`.
+3. `vp test` should report 757 passing before you change anything. For a live server, a `mise run dev` one may already be
+   running on :5173: reuse it, it reloads on changes (and `curl localhost:5173/cdn-cgi/handler/scheduled` runs the
+   cron). Otherwise run `cd apps/site && vp dev --port 5174 --strictPort`: `vp dev` at the repo root serves no Worker.
+   Never kill a server you didn't start. The local Cache API persists across restarts (`mise run db:reset` clears it).
+4. Done when `vp check`, `vp test` and `vp run -r build` pass, ARCHITECTURE matches the code, this file's Slice 7 is `[x]`
+   with the exact commands under Working Notes, and `Next Slice` points at Slice 8 (key rotation and `PATCH /me`).

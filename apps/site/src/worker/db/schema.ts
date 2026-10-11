@@ -9,6 +9,9 @@ const bytes = customType<{ data: Uint8Array; driverData: ArrayBuffer | Uint8Arra
     value instanceof ArrayBuffer ? new Uint8Array(value) : Uint8Array.from(value),
 });
 
+/** Values of `bots.status`. */
+export const BOT_STATUS = { active: 0, banned: 1 } as const;
+
 export const bots = sqliteTable(
   "bots",
   {

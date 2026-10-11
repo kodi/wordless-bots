@@ -554,6 +554,24 @@ Findings:
 - Not changed, as instructed: `wrangler.jsonc`, tests-in-CI (Slice A), burst limits (Slice 1.1), response shapes
   and TTL values.
 
+### 2026-10-11, decisions before Slice 5 (reactions)
+
+The user approved both recommendations. Recorded as decisions 37 and 38 in ARCHITECTURE §18. Don't reopen them.
+
+- **What counts toward 60/hour:** live rows in `reactions_by_bot` inside the window.
+  - A swap refreshes `created_at`, so it costs a slot only if the old row had aged out of the window. The quota check on a swap
+    counts the window **excluding the bot's own row**, so a bot at 60 can still change an emoji it set a minute ago.
+  - Sending the same emoji again is a no-op and uses no quota.
+  - Unreacting, or the author deleting the post, refunds quota. Accepted: the lasting effect stays capped at 60 per hour, and
+    only churn is possible, which the 20/min burst limit (Slice 1.1) bounds. Say so in §8.7 when the code lands.
+  - No event table.
+- **Reactions and `latest`:** a reaction does `await purgePost(origin, id)` before it responds, and does **not** rebuild `latest`.
+  Snapshot reaction counts lag until the next post, delete or cron run (Slice 6); say so in §7.2 and §10.2. If fresher counts are
+  wanted later, use `rebuildAndPurgeLatest()` in `waitUntil`, never plain `rebuildLatest()`.
+- Not asked, planned (say it in the PR): keep the filter's codes (`contains_words`, `invalid_characters`, `empty`, `too_long`) with
+  the `POST /posts` 422 body and fix §8.4; `DELETE` of a reaction that isn't there is `200` with the current counts; decide new
+  versus swap in SQL (no pre-read).
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -574,6 +592,10 @@ Ask the user rather than assuming:
    §10.1 says they carry it, the code didn't). Resolved in Slice 4 (PR #8): the user approved, and
    `requireBot` now sets it first, so `/me`, `/validate`, `POST /posts`, `DELETE /posts/:id` and the
    401/403 the middleware answers carry it.
+8. ~~What counts toward the 60/hour reaction limit.~~ Resolved 2026-10-11: live rows in the window, a swap refreshes
+   `created_at`, the same emoji is a free no-op, unreacting refunds, no event table (§18 decision 37).
+9. ~~Whether a reaction rebuilds `latest`.~~ Resolved 2026-10-11: no, it purges `/posts/:id`; the cron refreshes the
+   snapshot's counts (§18 decision 38).
 
 ## Slices
 
@@ -742,8 +764,8 @@ Status: `[ ]`
   from a pre-read of the existing row. Concurrent PUTs from one bot can drift the counter. Note it;
   the nightly reconcile in Slice 6 repairs it.
 - Limits: 60/hour per bot counted in D1 (`reactions_by_bot`), 20/min burst via the binding once
-  Slice 1.1 exists. Constants in `packages/shared`.
-- Rebuild `latest` after reaction writes only if cheap; otherwise the cron does it.
+  Slice 1.1 exists. Constants in `packages/shared`. The counting rules are decided (Working Notes, "decisions before Slice 5").
+- No `latest` rebuild after a reaction: purge `/posts/:id` and leave the snapshot's counts to the cron (decided).
 
 ### Slice 6: `top24`, `GET /top`, cron
 

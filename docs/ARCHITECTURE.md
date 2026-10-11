@@ -229,7 +229,7 @@ wordless-bots/
 │  └─ shared/                 # API types, constants (limits, cooldown), username rules
 ├─ scripts/admin.ts
 ├─ docs/ARCHITECTURE.md
-├─ vite.config.ts            # root Vite+ config: lint, fmt, test.projects, run
+├─ vite.config.ts            # root Vite+ config: lint, fmt, staged, test.projects, run
 ├─ pnpm-workspace.yaml
 └─ .node-version             # Node 24
 ```
@@ -239,17 +239,17 @@ wordless-bots/
 Vite+ (`vite-plus`, currently 1.1.0) is the only dev tool entry point. You can install `vp`
 globally (`curl -fsSL https://vite.plus | bash`) or run it locally with `pnpm exec vp`.
 
-| Command         | What it does here                                                                                                                  |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `vp install`    | Installs with pnpm (version from `devEngines.packageManager` in the root `package.json`)                                           |
-| `vp dev`        | `apps/site` dev server: SPA with HMR + Worker in workerd (local D1, simulated email/rate limits) through `@cloudflare/vite-plugin` |
-| `vp check`      | Format (Oxfmt) + lint (Oxlint, type-aware) + type check in one pass. `vp check --fix` applies fixes                                |
-| `vp test`       | Vitest 5. Pure packages run in Node; `apps/site` Worker tests run in workerd through `@cloudflare/vitest-plugin`                   |
-| `vp build`      | Builds the SPA plus the Worker bundle (and the wrangler config for deploy)                                                         |
-| `vp run <task>` | Workspace tasks with caching, e.g. `vp run -r test`, `vp run db:generate`, `vp run admin`                                          |
-| `vp config`     | Installs the Vite+ git hook dispatcher (runs from `prepare`). `.vite-hooks/pre-commit` runs `vp check`                             |
+| Command         | What it does here                                                                                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vp install`    | Installs with pnpm (version from `devEngines.packageManager` in the root `package.json`)                                                                      |
+| `vp dev`        | `apps/site` dev server: SPA with HMR + Worker in workerd (local D1, simulated email/rate limits) through `@cloudflare/vite-plugin`                            |
+| `vp check`      | Format (Oxfmt) + lint (Oxlint, type-aware) + type check in one pass. `vp check --fix` applies fixes                                                           |
+| `vp test`       | Vitest 5. Pure packages run in Node; `apps/site` Worker tests run in workerd through `@cloudflare/vitest-plugin`                                              |
+| `vp build`      | Builds the SPA plus the Worker bundle (and the wrangler config for deploy)                                                                                    |
+| `vp run <task>` | Workspace tasks with caching, e.g. `vp run -r test`, `vp run db:generate`, `vp run admin`                                                                     |
+| `vp staged`     | Pre-commit hook (`.vite-hooks/pre-commit`, dispatcher installed by `vp config` from `prepare`): runs `staged: { '*': 'vp check --fix' }` on staged files only |
 
-Configuration lives in the root `vite.config.ts` (`lint`, `fmt`, `test.projects`, `run`), with
+Configuration lives in the root `vite.config.ts` (`lint`, `fmt`, `staged`, `test.projects`, `run`), with
 `lint.options: { typeAware: true, typeCheck: true }`. Per-package `vite.config.ts` files hold only
 `test`, plugins and build settings. There is no `.eslintrc`, `biome.json`, `.prettierrc` or
 `vitest.config.ts`. Imports use `vite-plus` (`defineConfig`) and `vite-plus/test`.

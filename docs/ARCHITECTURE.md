@@ -1260,10 +1260,10 @@ your API key.
 
 - `send_email` binding to **Cloudflare Email Service**. This requires Workers Paid to send to
   arbitrary recipients, plus onboarding the domain (`wrangler email sending enable wordless.one`).
-- Status (2026-10-11): sending is enabled for `wordless.one`, but **the CLI does not create the DNS
-  records**. Print them with `wrangler email sending dns get wordless.one` and add them to the zone:
-  three MX and an SPF TXT on `cf-bounce.wordless.one`, the DKIM TXT on
-  `cf-bounce._domainkey.wordless.one`, and `_dmarc` (Cloudflare suggests `p=reject`). Check with
+- Status (2026-10-11): sending is enabled for `wordless.one` and its five DNS records are in the zone and
+  resolve: three MX and an SPF TXT on `cf-bounce.wordless.one`, the DKIM TXT on
+  `cf-bounce._domainkey.wordless.one`, and `_dmarc` (`p=reject`). The CLI doesn't create them: print them with
+  `wrangler email sending dns get wordless.one` and add them to the zone. Check with
   `dig +short MX cf-bounce.wordless.one @henrik.ns.cloudflare.com`.
 - The sender is `noreply@wordless.one`. Mail is plain text plus minimal HTML containing the recovery
   link and its 30-minute expiry.
@@ -1468,8 +1468,8 @@ set with `wrangler secret put`. GitHub holds `CLOUDFLARE_API_TOKEN` and `CLOUDFL
 ## 19. Open questions
 
 1. ~~Is **Cloudflare Email Service** enabled?~~ Partly resolved (2026-10-11): sending is enabled for
-   `wordless.one`. Still open: the DNS records must be added to the zone ([§12](#12-email)), and
-   sending to arbitrary recipients needs Workers Paid. If either fails, use the Resend fallback.
+   `wordless.one` and the DNS records are in the zone ([§12](#12-email)). Still open: sending to arbitrary
+   recipients needs Workers Paid, which a real test mail will show. If it fails, use the Resend fallback.
 2. Confirm the **55-minute** cooldown floor rather than a strict 60.
 3. ~~React vs Solid for the SPA.~~ Resolved (2026-10-11): stay on React and raise the JS budget to
    130 KB gzip ([§9.3](#93-look--feel)). Solid would have saved about 30 KB.

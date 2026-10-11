@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-11 (end of the Slice 8 session: key rotation and `PATCH /me`).
+Last updated: 2026-10-11 (Slice 9 session: key recovery and email).
 
 ## Summary
 
@@ -68,9 +68,9 @@ Merged on `main`:
   `GET /bots/:username/posts?before=`, `GET /a/:username.svg`, `findBotProfile()`, `botPosts()`, `purgeProfile()`, the
   avatar generator in `packages/shared`.
 
-- Slice 8 key rotation and `PATCH /me` is on `feat/keys-me` (PR in review): `POST /keys/rotate`, `PATCH /me`, `rotateKey()`, `setBio()`.
+- #13 Slice 8 key rotation and `PATCH /me` (merged as `bd289f4`): `POST /keys/rotate`, `PATCH /me`, `rotateKey()`, `setBio()`.
 
-Open: the Slice 8 PR (`feat/keys-me`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+Open: nothing. Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers),
 `api.ts` (all `/api/v1` routes so far), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -98,7 +98,7 @@ reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsern
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 809 tests (57 shared, 506 wordfilter, 246 worker) on the Slice 8 branch; 795 (232 worker) on `main` at
+Baseline: `vp test` runs 809 tests (57 shared, 506 wordfilter, 246 worker) on `main` at `bd289f4`; 795 (232 worker) at
 `fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
@@ -119,8 +119,9 @@ Infra reality:
   check → test → build).
 - The prod and staging D1 ids in `wrangler.jsonc` are filled in. Whether the databases hold the
   migrations is unverified.
-- Email Sending is enabled for `wordless.one` (account tag `132abfb887f74b398992af69fad0eaed`), but
-  its DNS records are **not in the zone yet** (ARCHITECTURE §12). No `send_email` binding yet.
+- Email Sending is enabled for `wordless.one` (account tag `132abfb887f74b398992af69fad0eaed`), and
+  its five DNS records (3 MX, SPF, DKIM, `_dmarc`) are in the zone and resolve (checked with `dig` against
+  `henrik.ns.cloudflare.com` and 1.1.1.1 on 2026-10-11; ARCHITECTURE §12). No `send_email` binding yet.
 
 ## Working Notes
 
@@ -905,9 +906,10 @@ Ask the user rather than assuming:
 1. **Rate Limiting binding** (`ratelimits` in `wrangler.jsonc`): approved? Three `TODO(§8.7)`
    comments in `api.ts` (register 3/min, `/usernames/check`, `/validate`) are waiting on this.
    Blocks Slice 1.1 only.
-2. **Cloudflare Email Service** (ARCHITECTURE §19.1): sending is enabled, but the user must add the
-   DNS records (or provide a DNS-edit token) and confirm Workers Paid. Also confirm the `send_email`
-   binding. Blocks Slice 9. Fallback is Resend behind the same `EmailSender` interface.
+2. **Cloudflare Email Service** (ARCHITECTURE §19.1): sending is enabled and the five DNS records are in the
+   zone (checked 2026-10-11). The `send_email` binding is approved (2026-10-11). Still open: whether the account is on
+   Workers Paid, which sending to arbitrary recipients needs. A real test mail settles it (see Slice 9). The fallback is
+   Resend behind the same `EmailSender` interface; switching needs the user's go-ahead.
 3. ~~JS budget vs React~~ Resolved 2026-10-11: React stays, budget is 130 KB gzip.
 4. **First deploy** of staging and prod (Slice 14), and who sets any new remote secrets, such as
    `ADMIN_TOKEN` in Slice 11. `IP_HASH_SECRET` is already set on both.
@@ -1118,7 +1120,7 @@ Differences from the sketch below: a banned bot's profile is a `404`, the profil
 
 ### Slice 8: `POST /keys/rotate` and `PATCH /me`
 
-Status: `[x]` Done and verified on `feat/keys-me` (PR in review). See Working Notes 2026-10-11, Slice 8 session. Differences from the sketch
+Status: `[x]` Done and verified; merged as `bd289f4` (PR #13). See Working Notes 2026-10-11, Slice 8 session. Differences from the sketch
 below: rotation is guarded by the old key's hash (parallel rotations: one wins, the rest are `401`), the response is `{api_key}` only, and an
 empty bio clears it.
 
@@ -1127,9 +1129,7 @@ empty bio clears it.
 
 ### Slice 9: key recovery and email
 
-Status: `[ ]` Blocked on Open Question 2.
-
-- First, check the DNS records exist: `dig +short MX cf-bounce.wordless.one @henrik.ns.cloudflare.com`.
+Status: `[ ]` Unblocked (DNS records in the zone, `send_email` binding approved); Workers Paid unverified.
 
 - `EmailSender` interface plus the Cloudflare implementation (`send_email` binding: ask first),
   `POST /recover` (always `202`, 3/hour per bot counted on `recovery_by_bot`), `POST
@@ -1186,10 +1186,9 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 9: key recovery and email.** **Blocked on Open Question 2** (Cloudflare Email Service): sending is enabled, but the DNS records are
-not in the zone and the `send_email` binding (and Workers Paid) need the user's go-ahead. Ask before starting. Slice A (tests in CI) is still
-deferred by the user and Slice 1.1 still waits on the Rate Limiting binding (Open Question 1). `AGENTS.md` is deliberately unchanged, so the
-user will point you at this file.
+**Slice 9: key recovery and email.** Unblocked: the DNS records are in the zone and the user approved the `send_email` binding. Workers Paid
+is unverified (Open Question 2). Slice A (tests in CI) is still deferred by the user and Slice 1.1 still waits on the Rate Limiting binding
+(Open Question 1). `AGENTS.md` is deliberately unchanged, so the user will point you at this file.
 
 If Open Question 2 stays open, pick one of the unblocked slices instead: Slice 10 (agent docs), Slice 11 (admin; needs `ADMIN_TOKEN` as a
 new secret, ask first) or Slice 12 (form fallback).

@@ -1,7 +1,10 @@
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
-  fmt: {},
+  fmt: {
+    // drizzle-kit owns these files; keep them byte-for-byte as generated.
+    ignorePatterns: ["apps/site/migrations/**"],
+  },
   lint: {
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
     rules: { "vite-plus/prefer-vite-plus-imports": "error" },

@@ -1,5 +1,5 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
-import { cloudflareTest } from "@cloudflare/vitest-plugin";
+import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite-plus";
 
@@ -7,6 +7,18 @@ export default defineConfig(({ mode }) => ({
   // Vitest runs the Worker through @cloudflare/vitest-plugin; dev and build use @cloudflare/vite-plugin.
   plugins:
     mode === "test"
-      ? [cloudflareTest({ wrangler: { configPath: "./wrangler.jsonc" } })]
+      ? [
+          cloudflareTest(async () => ({
+            wrangler: { configPath: "./wrangler.jsonc" },
+            miniflare: {
+              bindings: {
+                TEST_MIGRATIONS: await readD1Migrations(`${import.meta.dirname}/migrations`),
+              },
+            },
+          })),
+        ]
       : [cloudflare(), react()],
+  test: {
+    setupFiles: ["./test/apply-migrations.ts"],
+  },
 }));

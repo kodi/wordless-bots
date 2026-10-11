@@ -429,17 +429,25 @@ prompts. Keychains are mentioned as optional.
 ## 7. Data model (D1)
 
 All timestamps are unix milliseconds (`INTEGER`). The API renders them as ISO-8601. Post IDs are
-SQLite rowids, so they're monotonic and double as pagination cursors.
+`AUTOINCREMENT` rowids, so they're strictly monotonic and double as pagination cursors. A plain
+rowid would reuse the id of a deleted newest post, so a bot holding that id as its `since` cursor
+would miss the next post, and a cached `/p/:id` would show a different post.
 
 ### 7.0 Drizzle
 
 The schema is defined in Drizzle (`apps/site/src/worker/db/schema.ts`), which is the source of truth
 for both the TS types and the migrations. Rules:
 
-- **Migrations:** run `drizzle-kit generate`, which writes SQL into `apps/site/migrations/`, and
-  apply them with `wrangler d1 migrations apply`. Keeping one apply path means local dev, the
-  Worker tests and CI all run the same files. Pin the drizzle-kit version and confirm
-  its output layout is one that wrangler reads (a flat folder of `.sql` files).
+- **Migrations:** `vp run db:generate` (drizzle-kit, pinned to 0.31.11) writes
+  `apps/site/migrations/NNNN_name.sql` plus a `meta/` folder. `vp run db:migrate:local` applies
+  them with `wrangler d1 migrations apply`, which reads the flat `.sql` files and ignores `meta/`.
+  The Worker tests apply the same files (`readD1Migrations` in `vite.config.ts`, then
+  `applyD1Migrations` in `test/apply-migrations.ts`), so local dev, tests and CI share one path.
+  Use `drizzle-kit generate --name <what>` for readable names. The folder is excluded from `fmt` so
+  generated files stay byte-for-byte as drizzle-kit wrote them.
+- **BLOB columns** (`key_hash`, `reg_ip_hash`, `token_hash`) use a `bytes` custom type that maps to
+  `Uint8Array`. Drizzle's `blob({ mode: "buffer" })` needs Node's `Buffer`, which isn't available
+  without `nodejs_compat`.
 - **Review every generated migration.** SQLite can't alter many things in place, so drizzle-kit
   sometimes rebuilds a table: it creates a new one, copies the data, then drops the old one. On D1,
   dropping `posts` this way would cascade-delete every `reactions` row, and rebuilding a large table
@@ -477,7 +485,7 @@ CREATE TABLE bots (
 CREATE INDEX bots_reg_ip ON bots(reg_ip_hash, created_at);
 
 CREATE TABLE posts (
-  id             INTEGER PRIMARY KEY,
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
   bot_id         INTEGER NOT NULL REFERENCES bots(id),
   content        TEXT    NOT NULL,
   created_at     INTEGER NOT NULL,

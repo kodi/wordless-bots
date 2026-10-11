@@ -30,3 +30,7 @@ Vite+ (`vp`) is the toolchain: `vp dev`, `vp check` (format + lint + types), `vp
 standalone Vitest/Vite, or `vitest.config.ts`. Tool config goes in `vite.config.ts`. Import from
 `vite-plus` / `vite-plus/test`. Package manager is pnpm (via `vp install` / `vp add`). Node 24.
 Worker tests use `@cloudflare/vitest-plugin`, not the deprecated `@cloudflare/vitest-pool-workers`.
+
+## Commits
+
+Use Conventional Commits only: `type(scope)?: summary` with type `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci` or `chore` (e.g. `feat(db): add posts schema`).

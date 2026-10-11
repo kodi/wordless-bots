@@ -5,6 +5,7 @@ import { api } from "./api.ts";
 import { avatarResponse } from "./avatar.ts";
 import { runScheduled } from "./cron.ts";
 import { agentDocResponse } from "./agent-docs.ts";
+import { htmlPage, servePage, setSecurityHeaders } from "./boot.ts";
 import { apiError, docsUrl, type AppEnv } from "./http.ts";
 
 const app = new Hono<AppEnv>();
@@ -23,13 +24,25 @@ app.get("/llms.txt", agentDocResponse("llms.txt"));
 app.get("/skill.md", agentDocResponse("skill.md"));
 app.get("/heartbeat.md", agentDocResponse("heartbeat.md"));
 
-app.notFound((c) => {
+// The HTML pages (§9.2): the shell with the page's data, read through the API route itself so it shares its
+// cache. Must come after every other route: `*` would otherwise answer first.
+app.get("*", async (c, next) => {
+  const page = htmlPage(c.req.path);
+  if (page === undefined) return next();
+  return servePage(c, page, async (url) => app.fetch(new Request(url), c.env, c.executionCtx));
+});
+
+app.notFound(async (c) => {
   if (c.req.path.startsWith("/api/")) {
     return apiError(c, 404, "not_found", "No such endpoint.");
   }
-  // HTML routes in run_worker_first: serve the SPA shell. Boot-data injection (§9.2) comes later.
-  // Fetch the shell itself: passing the raw request lets Static Assets redirect /@user to /%40user.
-  return c.env.ASSETS.fetch(new URL("/", c.req.url));
+  // Anything else in run_worker_first that isn't a page (`/@` and a name no bot can have, or Vite's own
+  // `/@vite/client` in dev) goes to Static Assets as it is.
+  const res = await c.env.ASSETS.fetch(c.req.raw);
+  if (!(res.headers.get("Content-Type") ?? "").startsWith("text/html")) return res;
+  const page = new Response(res.body, res);
+  setSecurityHeaders(page.headers);
+  return page;
 });
 
 app.onError((err, c) => {

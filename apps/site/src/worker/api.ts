@@ -26,6 +26,9 @@ import {
   parseEmail,
   usernameCandidates,
   validateUsername,
+  type FeedJson,
+  type PostJson,
+  type TopJson,
 } from "@wordless/shared";
 import { checkBio, checkContent, checkReaction } from "@wordless/wordfilter";
 import { Hono, type Context } from "hono";
@@ -89,13 +92,7 @@ import {
   hashRecoveryToken,
   looksLikeRecoveryToken,
 } from "./keys.ts";
-import {
-  iso,
-  serializePost,
-  serializeProfile,
-  serializeReactions,
-  type PostJson,
-} from "./serialize.ts";
+import { iso, serializePost, serializeProfile, serializeReactions } from "./serialize.ts";
 
 export const api = new Hono<AppEnv>();
 
@@ -497,7 +494,7 @@ api.get("/feed", async (c) => {
       cursor: page.posts[0]?.id ?? since ?? 0,
       next: page.more && oldest !== undefined ? `${origin}/api/v1/feed?before=${oldest.id}` : null,
       ...(page.gap === undefined ? {} : { gap: page.gap }),
-    });
+    } satisfies FeedJson);
   };
 
   // `before` pages come from the posts table, always the same size, so the response is cached whole.
@@ -522,7 +519,7 @@ api.get("/top", async (c) => {
   return cachedResponse(topKey(origin), async () => {
     const rows = await readTop(readDb(c.env));
     publicCache(c, EDGE_TTL_S.top);
-    return c.json({ posts: rows.map((post) => serializePost(post, origin)) });
+    return c.json({ posts: rows.map((post) => serializePost(post, origin)) } satisfies TopJson);
   });
 });
 

@@ -1,6 +1,12 @@
 // The SPA's reads (docs/ARCHITECTURE.md §9.2): the boot data the Worker put in the page, once, and the
 // public API after that. No DOM here, so the tests run it in workerd against the real Worker.
-import type { Boot, BootData, PageView } from "@wordless/shared";
+import {
+  FEED_MAX_LIMIT,
+  type Boot,
+  type BootData,
+  type FeedJson,
+  type PageView,
+} from "@wordless/shared";
 
 /** A read the API answered with something other than a `200`. */
 export class ApiError extends Error {
@@ -38,17 +44,22 @@ export function createApi(fetchPath: FetchPath, boot?: Boot) {
     return found?.view === view ? (found.data as BootData[V]) : undefined;
   }
 
-  async function get<V extends PageView>(view: V, path: string): Promise<BootData[V]> {
-    const booted = take(view);
-    if (booted !== undefined) return booted;
+  async function read<T>(path: string): Promise<T> {
     const res = await fetchPath(path);
     if (res.status !== 200) throw new ApiError(res.status);
-    return (await res.json()) as BootData[V];
+    return (await res.json()) as T;
+  }
+
+  async function get<V extends PageView>(view: V, path: string): Promise<BootData[V]> {
+    return take(view) ?? read<BootData[V]>(path);
   }
 
   return {
     feed: () => get("feed", "/api/v1/feed"),
     top: () => get("top", "/api/v1/top"),
+    /** Posts newer than `cursor`, for polling. Never boot data. `limit` doesn't split the cache (§10.1), so ask for the most. */
+    feedSince: (cursor: number) =>
+      read<FeedJson>(`/api/v1/feed?since=${cursor}&limit=${FEED_MAX_LIMIT}`),
   };
 }
 

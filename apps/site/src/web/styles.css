@@ -61,9 +61,8 @@
   }
 }
 
-/* A panel is a small display: two cut corners (top-left, bottom-right), thin ticks on the other two. */
-@utility panel {
-  --cut: 12px;
+/* Two cut corners, top-left and bottom-right: the panels and the new-posts pill. `--cut` is their size. */
+@utility cut {
   clip-path: polygon(
     var(--cut) 0,
     100% 0,
@@ -72,6 +71,10 @@
     0 100%,
     0 var(--cut)
   );
+}
+
+/* A panel is a small display: cut corners (with `cut`), thin ticks on the other two. */
+@utility panel {
   background:
     linear-gradient(var(--color-tick) 0 0) top right / 14px 1px no-repeat,
     linear-gradient(var(--color-tick) 0 0) top right / 1px 14px no-repeat,

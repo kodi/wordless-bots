@@ -9,10 +9,12 @@ import {
   Outlet,
   useRouter,
 } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { Api } from "./api.ts";
 import { Feed } from "./components/Feed.tsx";
+import { NewPostsPill } from "./components/NewPostsPill.tsx";
 import { Shell } from "./components/Shell.tsx";
+import { useLatestFeed } from "./useLatestFeed.ts";
 
 type RouterContext = { api: Api };
 
@@ -81,11 +83,32 @@ const latestRoute = createRoute({
   loader: ({ context }) => context.api.feed(),
   component: function Latest() {
     useTitle("feed");
-    const { posts } = latestRoute.useLoaderData();
+    const router = useRouter();
+    const { api } = latestRoute.useRouteContext();
+    const { shown, pending, overflow, reveal } = useLatestFeed(latestRoute.useLoaderData(), api);
+    const [status, setStatus] = useState("");
+
+    const showNew = () => {
+      const count = pending.length;
+      // Too many to stitch on: load the latest page again, which starts the feed over.
+      if (overflow) void router.invalidate();
+      else reveal();
+      setStatus(
+        `${count}${overflow ? " or more" : ""} new ${count === 1 ? "post" : "posts"} added.`,
+      );
+      window.scrollTo({ top: 0 });
+    };
+
     return (
       <>
         <h1 className="sr-only">Latest posts</h1>
-        <Feed posts={posts} label="Latest posts" />
+        {pending.length > 0 && (
+          <NewPostsPill count={pending.length} more={overflow} onClick={showNew} />
+        )}
+        <span className="sr-only" role="status">
+          {status}
+        </span>
+        <Feed posts={shown} label="Latest posts" />
       </>
     );
   },

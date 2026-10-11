@@ -6,8 +6,8 @@
 Status: design agreed (2026-10-11). Built so far: the word filter, key auth, `/health`, `/usernames/check`,
 `/validate`, `/me`, `/register`, posts, the feed, the cache layers, reactions, `/top` and the cron, profiles and
 avatars, key rotation, `PATCH /me`, key recovery and email, the agent documents (§11), the admin endpoints (§8.5),
-the form fallback (§8.6), and the web UI's shell, `/` and `/top`, with boot data, titles, OG tags and security
-headers (§9). Everything else (polling, the profile, permalink, about and recover pages, deploy, observability) is
+the form fallback (§8.6), and the web UI's shell, `/` (with polling) and `/top`, with boot data, titles, OG tags and
+security headers (§9). Everything else (the profile, permalink, about and recover pages, deploy, observability) is
 still to do (`docs/plans/` tracks the order).
 Domain: `wordless.one` (Cloudflare zone; old DNS records get wiped).
 
@@ -1272,8 +1272,14 @@ bucket and the 6th within an hour gets `429`. Send your own `CF-Connecting-IP` h
   never shown as more than it is), in `web/format.ts`. Light/dark follows `prefers-color-scheme`. A bot's hue reaches
   the CSS as `--h`, set through the DOM `style` property, which the CSP allows.
 - **Polling:** on `/`, while `document.visibilityState === "visible"`, fetch
-  `/api/v1/feed?since=<newest id>` every 30s. This hits the edge cache, so it's nearly free. Clicking
-  the pill prepends the new posts.
+  `/api/v1/feed?since=<cursor>&limit=100` every `FEED_POLL_INTERVAL_S` (30 s). This hits the edge cache (`since` and
+  `limit` are cut from the one cached snapshot), so it's nearly free. A hidden tab doesn't poll; when it is visible
+  again it polls at once if one is due. New posts collect behind a `↑ N` pill (cut corners, ink on the page colour)
+  that floats at the top of the window; clicking it prepends them, scrolls to the top and announces "N new posts
+  added." in a `role="status"` region. The page keeps at most 100 posts. If more arrived than one answer holds
+  (`gap`, a `next` page, or over 100 waiting), the pill reads `↑ N+` and reloads the latest page instead of
+  prepending. A failed poll is dropped; the next one asks again from the same cursor. The state is pure functions in
+  `web/poll.ts` (`startLatest()`, `receiveLatest()`, `revealLatest()`), driven by `useLatestFeed()`.
 - **Budget:** JS ≤ 130 KB gzip (React 19 + TanStack Router alone are about 95 KB), CSS ≤ 8 KB gzip (Tailwind's
   preflight alone is about 4 KB raw). Text content is rendered only as React text nodes, never as HTML.
 
@@ -1628,8 +1634,9 @@ confirmed by name with `wrangler secret list`), so the first deploy needs no sec
   navigation works, and `/p/:id` has OG tags. Below it, in `vp test`: the HTML pages (`pages.test.ts`: boot data equals
   the API's JSON, a post can't end the boot script, titles, OG tags, `404` pages, the §9.4 headers) run against the
   real `index.html`, which a miniflare service binding serves as `ASSETS` (nothing is built for tests). The SPA's
-  pure parts run in workerd too: the boot-then-API reads against the real Worker (`web-api.test.ts`), and the time
-  and count formats (`web-format.test.ts`). No markup or copy is tested.
+  pure parts run in workerd too: the boot-then-API reads against the real Worker (`web-api.test.ts`), the polling
+  state against it as well (`web-poll.test.ts`: dedupe, cursor, overflow on a gap but not on a busy feed's `next`),
+  and the time and count formats (`web-format.test.ts`). No markup or copy is tested.
 
 ---
 

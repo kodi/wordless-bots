@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-12 (end of the Slice 13a + 13b session: the web UI shell, `/`, `/top`, boot data and security headers).
+Last updated: 2026-10-12 (end of the Slice 13a, 13b and 13c session: the web UI shell, `/`, `/top`, boot data, security headers, polling).
 
 ## Summary
 
@@ -81,7 +81,8 @@ Merged on `main`:
 - #17 Slice 12 form fallback (merged as `4fc15a3`): `readBody()`, the `api_key` form field in `requireBot`, `POST /reactions`,
   `GET /act`, `formFallback` (`form.ts`), `act.ts`.
 
-Open: branch `feat/web-ui-shell` (Slices 13a and 13b, not committed yet; see Working Notes 2026-10-12, Slice 13a + 13b session). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+Open: branch `feat/web-ui-shell`, not pushed: `bc95bd5` (13a + 13b) and the 13c commit after it (Working Notes 2026-10-12, Slice 13a + 13b session and
+Slice 13c session). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers; also `GET /act`),
 `api.ts` (all `/api/v1` routes so far, `putReaction()` and `sendRecovery()`), `act.ts` (`actPage()`, `resultPage()`, `escapeHtml()`), `form.ts` (`formFallback`, `prefersHtml()`), `admin.ts` (the `/api/admin` routes), `auth.ts` (`requireBot`, `requireAdmin`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -109,11 +110,11 @@ reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsern
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 967 tests (57 shared, 506 wordfilter, 404 worker) on `feat/web-ui-shell`; 915 (57 shared, 506 wordfilter, 352 worker) on `main` at `4fc15a3`; 879 (316 worker) on `main` at `8909b7e`; 861 (298 worker) at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
+Baseline: `vp test` runs 974 tests (57 shared, 506 wordfilter, 411 worker) on `feat/web-ui-shell` after 13c; 967 after 13a + 13b; 915 (57 shared, 506 wordfilter, 352 worker) on `main` at `4fc15a3`; 879 (316 worker) on `main` at `8909b7e`; 861 (298 worker) at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
 `fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
-Not built yet: burst rate limits (the register hourly limit exists), the UI beyond 13a/13b (polling, profile,
+Not built yet: burst rate limits (the register hourly limit exists), the UI beyond 13a to 13c (profile,
 permalink, about, recover, the smoke test), Analytics Engine events, `/og.png` and a favicon.
 
 Infra reality:
@@ -1206,8 +1207,8 @@ Findings and mistakes:
 
 ### 2026-10-12, Slice 13a + 13b session (web UI shell, `/`, `/top`, boot data, headers)
 
-Done on branch `feat/web-ui-shell`, branched from `docs/slice-13a-handoff` (`f679893`, the handoff commit, not on `main` yet). Not committed: the
-user didn't ask for a commit in this session. One dependency, approved before the session: `tailwindcss` and `@tailwindcss/vite` 4.3.3 (catalog, dev
+Done on branch `feat/web-ui-shell`, branched from `docs/slice-13a-handoff` (`f679893`, the handoff commit, not on `main` yet). Committed as
+`bc95bd5` at the user's request (not pushed). One dependency, approved before the session: `tailwindcss` and `@tailwindcss/vite` 4.3.3 (catalog, dev
 dependencies, the plugin in the non-test branch of `apps/site/vite.config.ts`). No binding, var, secret or migration.
 
 New: `src/web/{router.tsx,api.ts,format.ts,styles.css}`, `src/web/components/{Shell,Feed,Post,Avatar,Reactions,BotInvite}.tsx`,
@@ -1274,6 +1275,37 @@ Findings and mistakes:
 - Utilities like `shadow-*`, `tabular-nums` and `outline-*` each add `@property` fallbacks; replaced by plain declarations (CSS 16.75 to 14.49 kB raw before
   the sidebar).
 - `erasableSyntaxOnly` forbids constructor parameter properties (`ApiError`).
+
+### 2026-10-12, Slice 13c session (polling and the `↑ N` pill)
+
+Same branch, right after `bc95bd5`. No dependency, binding or migration. New: `FEED_POLL_INTERVAL_S` (30) in `packages/shared`, `web/poll.ts` (pure:
+`startLatest()`, `receiveLatest()`, `revealLatest()`), `web/useLatestFeed.ts` (timer, visibility, reset on new loader data),
+`components/NewPostsPill.tsx`, `test/web-poll.test.ts`. Changed: `web/api.ts` (`feedSince()`), `router.tsx` (the `/` route), `styles.css` (`cut` split
+out of `panel`, so the pill shares the cut corners), ARCHITECTURE §9.3 "Polling", §15, header status.
+
+- Design (ARCHITECTURE §9.3): poll `/api/v1/feed?since=<cursor>&limit=100` every 30 s while visible; a hidden tab doesn't poll and polls at once when
+  visible again if one is due. New posts are deduped by id against what is shown and waiting, kept newest first, at most 100. The cursor never moves
+  back. A `gap`, a `next` page or more than 100 waiting is an overflow: the pill reads `↑ N+` and `router.invalidate()` reloads the latest page instead
+  of prepending. The pill floats (no height, `sticky top-3`), so posts don't jump when it appears; on a phone at the very top it covers the first post's
+  time until clicked (as X's does). Clicking scrolls to the top and announces in a `role="status"` span. A failed poll is dropped silently.
+- **Why `limit=100`**: without `since` a busy feed's answer has a `next` page and every poll would overflow; with `since`, `limit` is cut in memory and
+  doesn't split the cache (§10.1), so asking for the most costs nothing.
+- Tests (7 new, 967 to 974, all in `web-poll.test.ts`): against the real Worker, a new post waits once and goes on top; a busy feed (full snapshot) with
+  one new post is no overflow; more than a snapshot's worth is. As data: a late, older answer adds nothing and the cursor doesn't move back; gap and
+  `next` overflow and it sticks; pile-up past 100 caps and overflows; reveal keeps 100, newest first.
+
+Verified (from the repo root):
+
+- `vp check --no-fmt`: clean (94 files). `vp test`: 37 files, **974 passed**. `vp run -r build`: passed; SPA JS 308.40 kB, **99.68 kB gzip**; CSS
+  16.82 kB, **4.58 kB gzip**; Worker unchanged (125.28 kB gzip).
+- Mutation checks (`$CLAUDE_JOB_DIR/tmp/mutate2.py`, `web-poll.test.ts` only): **13 of 13 caught** after two fixes. No dedupe, dedupe ignoring the
+  waiting posts, cursor moving back, gap ignored, `next` ignored, overflow not sticky, waiting posts not capped, no pile-up overflow, not sorted (**survived
+  first**; the late-answer test now arrives out of order), reveal not capped, reveal keeping the waiting posts, reveal appending, `since` not sent
+  (**survived first**; the busy-feed test catches it).
+- Live, Playwright against the user's `vp dev` (:5173): a post by another bot showed `↑ 1` after the 30 s poll (`?since=13&limit=100`); the click
+  prepended it, scrolled to the top, announced "1 new post added." and removed the pill. With `visibilityState` overridden to `hidden`, no poll in 35 s;
+  back to `visible`, it polled at once and showed the pill. The first post's position didn't move when the pill appeared (390px). No page errors.
+  Cleanup: `uiprobe_%` bots and posts deleted, cron re-run; local D1 shows 0 bots, 0 posts, 0 reactions, both snapshots `[]`.
 
 ## Open Questions
 
@@ -1549,7 +1581,7 @@ below: a form can't reach `PUT /posts/:id/reaction`, so react is `POST /reaction
 
 ### Slice 13: the web UI (several PRs)
 
-Status: `[-]` 13a and 13b done and verified on `feat/web-ui-shell` (Working Notes 2026-10-12, Slice 13a + 13b session); 13c to 13e open. React stays and the JS budget is 130 KB gzip (decided 2026-10-11). The look is the **Hash** direction from `docs/design/2026-10-11-home-profile-v2/`,
+Status: `[-]` 13a, 13b and 13c done and verified on `feat/web-ui-shell` (Working Notes 2026-10-12, Slice 13a + 13b and Slice 13c sessions); 13d and 13e open. React stays and the JS budget is 130 KB gzip (decided 2026-10-11). The look is the **Hash** direction from `docs/design/2026-10-11-home-profile-v2/`,
 built with Tailwind (user's decision, 2026-10-12; see Next Slice).
 
 - 13a Tailwind, the shell, and `/` and `/top` from the API; 13b `HTMLRewriter` boot-data injection, titles and OG tags,
@@ -1586,17 +1618,19 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 13c: polling and the `↑ N` pill** on `/` (ARCHITECTURE §9.3 "Polling", §2.5). First get 13a + 13b committed and merged (`feat/web-ui-shell`, not
-committed yet).
+**Slice 13d: the profile (`/@:username`), the permalink (`/p/:id`), `/about` and `/recover`.** First get `feat/web-ui-shell` (13a to 13c) pushed and
+merged.
 
-- While `document.visibilityState === "visible"`, fetch `/api/v1/feed?since=<newest id>` every 30 s (a constant in `packages/shared`). New posts go into a
-  pill (`↑ N`, cut corners like the panels: `panel`'s `clip-path` with `--cut: 6px`, ink background) under the top bar; clicking it prepends them and
-  announces "N new posts added." in a `role="status"` region. Handle `gap: true` (too many to page in: reload the latest page instead of prepending).
-- The loader data comes from `createApi()` (`web/api.ts`); keep boot data used once. Stop polling on `/top` and when hidden; restart on `visibilitychange`.
-- Relative times already tick (`useNow()` in `Feed.tsx`, 30 s).
-- Tests: the polling state flow as pure logic (merge, dedupe by id, cursor, gap), run in workerd like `web-api.test.ts`. No markup tests.
-- Dev: the user's `mise run dev` (:5173) may be used for live checks; seed `uiprobe_*` bots with the API (`CF-Connecting-IP` varies the register
-  bucket), trigger the cron with `/cdn-cgi/handler/scheduled`, clean up scoped rows after.
+- Design: `docs/design/2026-10-11-home-profile-v2/hash-profile.html` (banner panel in a pale `oklch()` tint of the bot's hue holding the bio in large
+  mono, the 112px avatar overlapping it, name and stats `▤ posts`, `♡ reactions`, `◷ joined`). Reuse `Post`, `Avatar`, `Reactions`, `Feed`, `cut`/`panel`.
+- The Worker already serves both pages with boot data (`{view: "bot" | "post"}`), titles and OG tags (13b). Add `api.bot(username)` and `api.post(id)` in
+  `web/api.ts` (they take boot data like `feed`/`top`), the routes (TanStack prefix param `/@{$username}`, §9.1), and a not-found view for an
+  `ApiError` with status `404`. `useTitle()` needs the username (`pageTitle(view, username)`).
+- Make author names and avatars link to profiles and the time link to the permalink (left as plain text in 13a).
+- Profile paging: `next` → `GET /bots/:username/posts?before=` (a "more" button, no infinite scroll needed).
+- `/about`: the human explainer (prose allowed, §9.3) and `∴ about` in the nav. `/recover`: reads `#t=`, calls `POST /api/v1/recover/confirm`, shows
+  the new key once (`private`, never logged), §2.4. Both are SPA-only routes served by Static Assets (headers from `public/_headers`).
+- Still missing: an `/og.png` and a favicon (need an image from the user).
 
 Still deferred or waiting: Slice A (tests in CI, deferred by the user), Slice 1.1 (Rate Limiting binding, Open Question 1), Slice 14 (first deploy; also
-confirms Workers Paid, Open Question 2), an `/og.png` and a favicon (need an image).
+confirms Workers Paid, Open Question 2).

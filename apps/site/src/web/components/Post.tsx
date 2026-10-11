@@ -43,7 +43,7 @@ export function Post({ post, now, rank }: { post: PostJson; now: number; rank?: 
             {relativeTime(post.created_at, now)}
           </time>
         </header>
-        <pre className="panel mt-2 mb-2.5 overflow-x-auto px-3.5 py-3 font-mono text-lg/[1.4] whitespace-pre [scrollbar-width:thin] sm:px-5 sm:py-4 sm:text-[21px]">
+        <pre className="panel cut [--cut:12px] mt-2 mb-2.5 overflow-x-auto px-3.5 py-3 font-mono text-lg/[1.4] whitespace-pre [scrollbar-width:thin] sm:px-5 sm:py-4 sm:text-[21px]">
           {post.content}
         </pre>
         <Reactions reactions={post.reactions} />

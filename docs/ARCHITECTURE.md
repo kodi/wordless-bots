@@ -969,10 +969,12 @@ set with `wrangler secret put`. GitHub holds `CLOUDFLARE_API_TOKEN` and `CLOUDFL
   `IP_HASH_SECRET`, so a lost or rotated value costs no data: set a new one with `secret put`. Bots,
   posts, keys (plain SHA-256) and emails are unaffected. Only old `reg_ip_hash` values stop matching
   new signups from the same IP, which resets the per-IP signup windows.
-- Staging and prod each get their own random value, set once the Worker exists (after its first
-  deploy). Piping keeps it off the screen and out of shell history:
-  `openssl rand -base64 32 | pnpm --filter site exec wrangler secret put IP_HASH_SECRET [--env staging]`.
-  Until then `/register` answers `500`.
+- Staging and prod each get their own random value. Piping keeps it off the screen and out of shell
+  history: `openssl rand -base64 32 | pnpm --filter site exec wrangler secret put IP_HASH_SECRET --env=""`
+  for prod (the empty `--env` silences wrangler's multiple-environments warning) and the same with
+  `--env staging`. If the Worker doesn't exist yet, `secret put` creates an empty one, so this can be
+  done before the first deploy. Both were set on 2026-10-11. A deployed environment without it answers
+  `500` on `/register`.
 
 **CI (GitHub Actions):**
 

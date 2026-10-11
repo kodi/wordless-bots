@@ -63,8 +63,10 @@ the real UI, Analytics Engine events.
 
 Infra reality:
 
-- No Worker is deployed. `wrangler secret list` fails for both prod and staging ("run `wrangler
-  deploy` first"), so **`IP_HASH_SECRET` is not set remotely**. Command is in ARCHITECTURE §14.
+- No code is deployed. The Workers `wordless` and `wordless-staging` exist only as empty
+  placeholders that `wrangler secret put` created, and **`IP_HASH_SECRET` is set on both** (the user
+  ran it on 2026-10-11; `wrangler secret list` shows it for prod with `--env=""` and for `--env
+  staging`). Later secrets follow ARCHITECTURE §14.
 - `wrangler.jsonc` has only `DB`, `ASSETS`, the `secrets.required` list and observability. No
   `ratelimits`, `send_email`, `analytics_engine_datasets` or `triggers.crons`.
 - CI runs only `vp check`. **Tests and build are not in CI** (§14 says the PR pipeline should be
@@ -110,8 +112,10 @@ Infra reality:
   them, even after a retry 20 s later: **the CLI does not create the DNS records**. They have to be
   added in the dashboard (or with an API token that can edit DNS). Not done by me: no DNS token.
 - Not verified: whether the account is on Workers Paid (needed to send to arbitrary recipients).
-- `wrangler secret put` against a Worker that doesn't exist was not run. `secret list` says "run
-  `wrangler deploy` first".
+- The user then ran `secret put IP_HASH_SECRET` for prod and staging. Wrangler asked to create the
+  missing Worker (non-interactive fallback: yes) and uploaded the secret, so no deploy was needed
+  first. I confirmed with `wrangler secret list` for both environments. Prod needs `--env=""` to
+  avoid a "multiple environments" warning.
 
 ## Open Questions
 
@@ -123,8 +127,8 @@ Ask the user rather than assuming:
    DNS records (or provide a DNS-edit token) and confirm Workers Paid. Also confirm the `send_email`
    binding. Blocks Slice 9. Fallback is Resend behind the same `EmailSender` interface.
 3. ~~JS budget vs React~~ Resolved 2026-10-11: React stays, budget is 130 KB gzip.
-4. **First deploy** of staging and prod, and who sets the remote secrets. Not needed until Slice 14,
-   but `/register` returns 500 on any deployed environment until `IP_HASH_SECRET` is set.
+4. **First deploy** of staging and prod (Slice 14), and who sets any new remote secrets, such as
+   `ADMIN_TOKEN` in Slice 11. `IP_HASH_SECRET` is already set on both.
 5. **Cron triggers** (`triggers.crons`, needed in Slice 6): treat as infra and confirm.
 6. Minor, decide in Slice 4: what `cursor` is when the feed is empty.
 

@@ -5,6 +5,8 @@ import {
   POST_MAX_GRAPHEMES,
   POST_MAX_LINE_GRAPHEMES,
   POST_MAX_LINES,
+  REGISTER_IP_MAX,
+  REGISTER_IP_WINDOW_S,
   USERNAME_CHECK_MAX,
   USERNAME_MAX_LENGTH,
   USERNAME_MIN_LENGTH,
@@ -19,8 +21,16 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { requireBot } from "./auth.ts";
 import { storeCredentials } from "./credentials.ts";
-import { createBot, pingDb, readDb, takenUsernames, writeDb, type Db } from "./db/queries.ts";
-import { apiError, readJson, type AppEnv } from "./http.ts";
+import {
+  createBot,
+  ipSignups,
+  pingDb,
+  readDb,
+  takenUsernames,
+  writeDb,
+  type Db,
+} from "./db/queries.ts";
+import { apiError, readJson, tooManyRequests, type AppEnv } from "./http.ts";
 import { hashIp } from "./ip-hash.ts";
 import { generateApiKey } from "./keys.ts";
 
@@ -77,7 +87,7 @@ async function freeSuggestions(db: Db, username: string): Promise<string[]> {
   return candidates.filter((name) => !taken.has(name)).slice(0, USERNAME_SUGGESTIONS);
 }
 
-// TODO(§8.7): 3/min/IP via the Rate Limiting binding and 5/hour/IP from `bots_reg_ip` (429 rate_limited).
+// TODO(§8.7): 3/min/IP via the Rate Limiting binding once it's approved. The 5/hour/IP limit is in `createBot`.
 api.post("/register", async (c) => {
   const body = await readJson(c, Register);
   if (body instanceof Response) return body;
@@ -121,18 +131,43 @@ api.post("/register", async (c) => {
   }
 
   const apiKey = await generateApiKey();
-  const created = await createBot(db, {
-    username,
-    email: email.email,
-    emailNorm: email.norm,
-    keyHash: apiKey.hash,
-    keyPrefix: apiKey.prefix,
-    bio,
-    createdAt: Date.now(),
-    regIpHash: await hashIp(c.env.IP_HASH_SECRET, c.req.header("CF-Connecting-IP") ?? "unknown"),
-  });
+  const now = Date.now();
+  const windowMs = REGISTER_IP_WINDOW_S * 1000;
+  const regIpHash = await hashIp(
+    c.env.IP_HASH_SECRET,
+    c.req.header("CF-Connecting-IP") ?? "unknown",
+  );
+  const created = await createBot(
+    db,
+    {
+      username,
+      email: email.email,
+      emailNorm: email.norm,
+      keyHash: apiKey.hash,
+      keyPrefix: apiKey.prefix,
+      bio,
+      createdAt: now,
+      regIpHash,
+    },
+    { max: REGISTER_IP_MAX, windowMs },
+  );
   if (!created.created) {
-    if (created.conflict === "email") {
+    if (created.reason === "ip_limit") {
+      // The oldest signup in the window is the first to age out and free a slot.
+      const { oldest } = await ipSignups(db, regIpHash, now - windowMs);
+      const retryAfterS =
+        oldest === null ? 1 : Math.max(1, Math.ceil((oldest + windowMs - now) / 1000));
+      return tooManyRequests(
+        c,
+        "rate_limited",
+        "Too many signups from this IP address.",
+        retryAfterS,
+        {
+          hint: `At most ${REGISTER_IP_MAX} bots can register from one IP address per hour. Wait ${retryAfterS} seconds, then try again.`,
+        },
+      );
+    }
+    if (created.reason === "email") {
       return apiError(c, 409, "email_in_use", "A bot is already registered with that email.", {
         hint: `If it's yours, get its key back with POST ${origin}/api/v1/recover {"username": "..."}.`,
       });

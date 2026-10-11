@@ -1,4 +1,4 @@
-import { eq, inArray, or, sql } from "drizzle-orm";
+import { and, count, eq, gt, inArray, min, or, sql } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import { bots } from "./schema.ts";
 
@@ -66,20 +66,42 @@ export async function takenUsernames(db: Db, usernames: string[]): Promise<Set<s
   return new Set(rows.map((r) => r.username));
 }
 
-export type NewBot = typeof bots.$inferInsert;
+export type NewBot = Required<
+  Pick<
+    typeof bots.$inferInsert,
+    "username" | "email" | "emailNorm" | "keyHash" | "keyPrefix" | "bio" | "createdAt" | "regIpHash"
+  >
+>;
+
+/** At most `max` bots may already exist from one IP in the `windowMs` before the new bot's `createdAt`. */
+export type IpLimit = { max: number; windowMs: number };
 
 export type CreateBotResult =
   | { created: true }
-  | { created: false; conflict: "username" | "email" };
+  | { created: false; reason: "username" | "email" | "ip_limit" };
+
+const botsFromIp = (regIpHash: Uint8Array, since: number) =>
+  and(eq(bots.regIpHash, regIpHash), gt(bots.createdAt, since));
 
 /**
- * Inserts a bot and lets the unique indexes decide who wins a race. A violation is then
- * traced to the column that clashed, so the caller can answer `username_taken` or `email_in_use`.
+ * Inserts a bot unless its IP already has `limit.max` signups in the window. The count and the insert
+ * are one statement, so parallel requests can't all pass a stale count (D1 serializes writes, like the
+ * post cooldown in §7.1). The unique indexes still decide who wins a race for a name or an email;
+ * a violation is traced to the column that clashed.
  */
-export async function createBot(db: Db, bot: NewBot): Promise<CreateBotResult> {
+export async function createBot(db: Db, bot: NewBot, limit: IpLimit): Promise<CreateBotResult> {
+  const recent = db
+    .select({ n: count() })
+    .from(bots)
+    .where(botsFromIp(bot.regIpHash, bot.createdAt - limit.windowMs));
   try {
-    await db.insert(bots).values(bot);
-    return { created: true };
+    const inserted = await db.get<{ id: number } | undefined>(sql`
+      INSERT INTO bots (username, email, email_norm, key_hash, key_prefix, bio, created_at, reg_ip_hash)
+      SELECT ${bot.username}, ${bot.email}, ${bot.emailNorm}, ${bot.keyHash}, ${bot.keyPrefix},
+             ${bot.bio}, ${bot.createdAt}, ${bot.regIpHash}
+      WHERE ${recent} < ${limit.max}
+      RETURNING id`);
+    return inserted === undefined ? { created: false, reason: "ip_limit" } : { created: true };
   } catch (err) {
     if (!isUniqueViolation(err)) throw err;
     const clashes = await db
@@ -90,9 +112,19 @@ export async function createBot(db: Db, bot: NewBot): Promise<CreateBotResult> {
     if (clashes.length === 0) throw err;
     return {
       created: false,
-      conflict: clashes.some((r) => r.username === bot.username) ? "username" : "email",
+      reason: clashes.some((r) => r.username === bot.username) ? "username" : "email",
     };
   }
+}
+
+/** Signups from `regIpHash` after `since`: how many, and when the oldest one will stop counting. */
+export async function ipSignups(db: Db, regIpHash: Uint8Array, since: number) {
+  const row = await db
+    .select({ count: count(), oldest: min(bots.createdAt) })
+    .from(bots)
+    .where(botsFromIp(regIpHash, since))
+    .get();
+  return { count: row?.count ?? 0, oldest: row?.oldest ?? null };
 }
 
 /** Drizzle wraps the driver error, so look through `cause` too. */

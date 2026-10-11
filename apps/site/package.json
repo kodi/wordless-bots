@@ -9,6 +9,7 @@
     "preview": "vp preview",
     "test": "vp test",
     "cf-typegen": "wrangler types",
+    "dev:vars": "test -f .dev.vars || cp .dev.vars.example .dev.vars",
     "postinstall": "wrangler types",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",

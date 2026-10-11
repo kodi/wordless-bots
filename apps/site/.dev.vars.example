@@ -1,0 +1,4 @@
+# Local secrets for `vp dev`. `pnpm dev` copies this to .dev.vars (gitignored) when it's missing.
+# Deployed values are set with `wrangler secret put <NAME>` (docs/ARCHITECTURE.md §14).
+# This one only keys the IP hashes in your local D1, so any value will do.
+IP_HASH_SECRET=local-dev-ip-hash-secret

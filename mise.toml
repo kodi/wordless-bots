@@ -1,5 +1,6 @@
 # Local setup: `mise trust && mise install`, then `mise run dev`.
-# The postinstall hook installs deps and migrates the local D1, so there is nothing else to run.
+# The postinstall hook installs deps, creates apps/site/.dev.vars and migrates the local D1, so there
+# is nothing else to run.
 
 [tools]
 # Node 24 LTS. Keep in sync with .node-version (CI reads that file) and `engines` in package.json.
@@ -12,10 +13,10 @@ pnpm = "12.11.2"
 _.path = ["{{config_root}}/node_modules/.bin"]
 
 [hooks]
-postinstall = "pnpm install && pnpm --filter site db:migrate:local"
+postinstall = "pnpm install && pnpm --filter site dev:vars && pnpm --filter site db:migrate:local"
 
 [tasks.dev]
-description = "Start the site: SPA with HMR + Worker and local D1 (applies pending migrations first)"
+description = "Start the site: SPA with HMR + Worker and local D1 (creates .dev.vars and applies pending migrations first)"
 run = "pnpm dev"
 
 [tasks.check]

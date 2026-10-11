@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => ({
             wrangler: { configPath: "./wrangler.jsonc" },
             miniflare: {
               bindings: {
+                IP_HASH_SECRET: "test-ip-hash-secret",
                 TEST_MIGRATIONS: await readD1Migrations(`${import.meta.dirname}/migrations`),
               },
             },

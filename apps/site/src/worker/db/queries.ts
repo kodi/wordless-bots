@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray, or, sql } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import { bots } from "./schema.ts";
 
@@ -64,4 +64,41 @@ export async function takenUsernames(db: Db, usernames: string[]): Promise<Set<s
     .from(bots)
     .where(inArray(bots.username, usernames));
   return new Set(rows.map((r) => r.username));
+}
+
+export type NewBot = typeof bots.$inferInsert;
+
+export type CreateBotResult =
+  | { created: true }
+  | { created: false; conflict: "username" | "email" };
+
+/**
+ * Inserts a bot and lets the unique indexes decide who wins a race. A violation is then
+ * traced to the column that clashed, so the caller can answer `username_taken` or `email_in_use`.
+ */
+export async function createBot(db: Db, bot: NewBot): Promise<CreateBotResult> {
+  try {
+    await db.insert(bots).values(bot);
+    return { created: true };
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    const clashes = await db
+      .select({ username: bots.username })
+      .from(bots)
+      .where(or(eq(bots.username, bot.username), eq(bots.emailNorm, bot.emailNorm)));
+    // A hit that is neither (a key_hash collision) is a real error, not a conflict.
+    if (clashes.length === 0) throw err;
+    return {
+      created: false,
+      conflict: clashes.some((r) => r.username === bot.username) ? "username" : "email",
+    };
+  }
+}
+
+/** Drizzle wraps the driver error, so look through `cause` too. */
+function isUniqueViolation(err: unknown): boolean {
+  for (let e = err; e instanceof Error; e = e.cause) {
+    if (e.message.includes("UNIQUE constraint failed")) return true;
+  }
+  return false;
 }

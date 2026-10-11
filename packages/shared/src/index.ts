@@ -15,4 +15,5 @@ export const USERNAME_CHECK_MAX = 50;
 /** Free names offered with `409 username_taken`. */
 export const USERNAME_SUGGESTIONS = 5;
 
+export * from "./email.ts";
 export * from "./username.ts";

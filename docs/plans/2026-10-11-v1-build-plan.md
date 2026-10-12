@@ -87,7 +87,10 @@ Merged on `main`:
 - #19 Slices 13d, 13d.1, 13e and the terms and privacy pages (squash-merged as `f611b24`): profile, permalink, `/about`, `/recover`,
   `scripts/smoke.ts`, `/terms`, `/privacy`.
 
-Open: branch `feat/deploy` (Slice 14, not pushed): the `CI` workflow with the deploy jobs, Custom Domains in `wrangler.jsonc`. See Next Slice.
+- #20 Slice 14 deploy pipeline (squash-merged as `564c5fb`): `ci.yml` (check, test, build; staging on `main`, prod on `v*`), Custom Domains in
+  `wrangler.jsonc`. Its merge deployed staging.
+
+Open: branch `docs/slice-14-staging` (these notes).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers; also `GET /act`),
 `api.ts` (all `/api/v1` routes so far, `putReaction()` and `sendRecovery()`), `act.ts` (`actPage()`, `resultPage()`, `escapeHtml()`), `form.ts` (`formFallback`, `prefersHtml()`), `admin.ts` (the `/api/admin` routes), `auth.ts` (`requireBot`, `requireAdmin`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -131,8 +134,8 @@ Not built yet: burst rate limits (the register hourly limit exists), Analytics E
 
 Infra reality:
 
-- No code is deployed. The Workers `wordless` and `wordless-staging` exist only as empty
-  placeholders that `wrangler secret put` created, and **`IP_HASH_SECRET` and `ADMIN_TOKEN` are set on both** (the
+- **Staging is deployed** (`wordless-staging` at `staging.wordless.one`, by CI on the merge of #20, 2026-10-12). Prod (`wordless`) is still
+  only the empty placeholder that `wrangler secret put` created. On both, **`IP_HASH_SECRET` and `ADMIN_TOKEN` are set on both** (the
   user ran `IP_HASH_SECRET` on 2026-10-11; `ADMIN_TOKEN` was set on 2026-10-12, piped from Doppler, `prd` to the top level
   and `stg` to `--env staging`, and confirmed by name with `wrangler secret list`; the values were never read). Later secrets
   follow ARCHITECTURE §14.
@@ -143,7 +146,7 @@ Infra reality:
 - `wrangler.jsonc` has `DB`, `ASSETS`, `EMAIL` (`send_email`, since Slice 9, approved by the user on 2026-10-11, top level and `env.staging`), the `secrets.required` list (`IP_HASH_SECRET` and, since Slice 11, `ADMIN_TOKEN`; both are set as Cloudflare secrets on both Workers), observability and (since Slice 6, approved by
   the user on 2026-10-11) `triggers.crons: ["* * * * *"]` at the top level and in `env.staging`. No `ratelimits` or
   `analytics_engine_datasets`.
-- CI on `main` runs only `vp check`. On `feat/deploy`, `ci.yml` runs check, test and build on every run and deploys (Slice 14).
+- CI (`ci.yml`) runs check, test and build on every run, deploys staging on a push to `main` and prod on a `v*` tag (Slice 14).
 - GitHub holds `CLOUDFLARE_API_TOKEN` (account API token `github-wordless`) and `CLOUDFLARE_ACCOUNT_ID` as repo secrets (set by the user
   2026-10-12, checked by a throwaway workflow; see Working Notes "Slice 14 session").
 - The prod and staging D1 ids in `wrangler.jsonc` are filled in. **Staging holds every migration on `main`** (`wrangler d1 migrations
@@ -1515,6 +1518,33 @@ Verified (repo root): `vp check --no-fmt` clean (106 files); `vp fmt --check app
 `vp test` **996 passed** (38 files); `vp run -r build` passed. **The workflow itself has not run**: the `check` job runs on the PR, the
 deploy jobs only after merge or a tag.
 
+### 2026-10-12, first staging deploy
+
+- The user deleted the old records (apex `A`, wildcard, `www` `CNAME`). `dig` against `henrik.ns.cloudflare.com` afterwards: the apex,
+  `www`, `staging.` and a made-up name had no `A` or `CNAME`; the 3 MX and the SPF on `cf-bounce.`, the DKIM on `cf-bounce._domainkey.` and
+  `_dmarc` were intact.
+- Merging #20 ran `CI` 38190907972: `check` passed, then `staging` in 48 s: "No migrations to apply!", the deploy ("Deployed
+  wordless-staging triggers", `staging.wordless.one (custom domain)`, `schedule: * * * * *`), the wait (two `Could not resolve host` before
+  the name appeared), and the smoke test (`/` with 0 posts; profile and permalink skipped). **The token needed no change for the Custom
+  Domain.**
+- Probed by hand (read only): `/`, `/top`, `/about`, `/skill.md`, `/llms.txt`, `/api/v1/health`, `/api/v1/feed` `200` in 50 to 180 ms;
+  CSP, `nosniff` and the referrer policy present; `/skill.md` links to `https://staging.wordless.one`; `/@abc123` and `/p/1` `404`.
+  `/api/v1/health` had `null` snapshot ages for about two minutes after the deploy, then `10` and `10`: the cron runs.
+- **Not fixed, a follow-up:** `/@<reserved or invalid name>` (`/@nobody`, `/@Ab`) answers `307` to `/%40nobody`, which serves the SPA shell
+  with `200`. `htmlPage()` rejects the name, `notFound` passes the request to Static Assets, and deployed Static Assets redirects to the
+  encoded path (local `vp preview` doesn't, so no test saw it). A valid name that isn't a bot is the intended `404`. Fix: answer the `404`
+  page in the Worker for any `/@` path it rejects (and the same for `/p/<non-canonical id>`, which is `200` today).
+- **Heartbeat with `curl`**, bot `staging_probe` (registered by Claude with a second address of the user's, which isn't verified on
+  the Cloudflare account): register `201`; `/me` `200`; `/validate` of `hello world 👋` → `contains_words`; post `201` (id 1); a second post
+  `429 cooldown`; the post in `/feed`; a reaction to its own post `403 self_reaction` (no second bot, so no real reaction was tested).
+  `pnpm smoke --url https://staging.wordless.one` from the laptop then passed **3 of 3**.
+- **Recovery mail:** `POST /recover` for `staging_probe` → `202`; the mail reached that address **in spam** (the user, 2026-10-12).
+  That confirms Workers Paid (Open Question 2). Gmail's header panel showed `mailed-by: cf-bounce.wordless.one` (SPF
+  passes, aligned under relaxed DMARC) and `signed-by: wordless.one` (DKIM passes, aligned), and "Show original" said SPF, DKIM and DMARC all `PASS`, so authentication is fine; the spam placement
+  is most likely a new sending domain's reputation. The link was not used.
+- `staging_probe` stays on staging, so CI's smoke test runs all three checks. Its key was kept only in the session's temp directory (gone
+  with the session); if it's needed, use the recovery flow.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -1522,13 +1552,13 @@ Ask the user rather than assuming:
 1. **Rate Limiting binding** (`ratelimits` in `wrangler.jsonc`): approved? Three `TODO(§8.7)`
    comments in `api.ts` (register 3/min, `/usernames/check`, `/validate`) are waiting on this.
    Blocks Slice 1.1 only.
-2. ~~**Cloudflare Email Service** (ARCHITECTURE §19.1)~~ Resolved by the user's word, 2026-10-12: Workers Paid and R2 paid are active. **Not
-   verified on the account**; a recovery mail to a non-verified address at the first staging deploy (Slice 14) is the confirmation. Sending is
+2. ~~**Cloudflare Email Service** (ARCHITECTURE §19.1)~~ Resolved 2026-10-12: Workers Paid is active, **confirmed** by a staging recovery mail
+   to an address that isn't verified on the account (it arrived, in spam). Before that it rested on the user's word. Sending is
    enabled, the five DNS records are in the zone and the `EMAIL` binding exists (2026-10-11). The Slice 9 test mail went to the user's own
    address and was accepted ("Queued for"), which settles nothing: an account owner's address may be a verified destination on the free plan.
    The fallback is Resend behind the same `EmailSender` interface; switching needs the user's go-ahead.
 3. ~~JS budget vs React~~ Resolved 2026-10-11: React stays, budget is 130 KB gzip.
-4. **First deploy** of staging and prod (Slice 14); only that remains. `IP_HASH_SECRET` and `ADMIN_TOKEN` are set on both Workers
+4. **First deploy**: staging done (2026-10-12, Slice 14); prod remains. `IP_HASH_SECRET` and `ADMIN_TOKEN` are set on both Workers
    (`ADMIN_TOKEN` on 2026-10-12, from Doppler `prd` to the top level and `stg` to `--env staging`). Ask before any new `wrangler secret put`.
 5. ~~Cron triggers~~ Resolved 2026-10-11: the user approved `triggers.crons: ["* * * * *"]` (Slice 6).
 6. ~~What `cursor` is when the feed is empty.~~ Resolved in Slice 4: it echoes the caller's `since`, or
@@ -1888,8 +1918,8 @@ exists.
 
 ### Slice 14: deploy
 
-Status: `[-]` The pipeline and config are on `feat/deploy` (not pushed, not run). Still to do: the user deletes the old DNS records, the
-first staging and prod deploys, `www`, Email Routing, and the recovery-mail check. See Working Notes "Slice 14 session".
+Status: `[-]` Pipeline merged (#20), old DNS records deleted, staging deployed and checked, recovery mail confirmed. Still to do: the first
+prod deploy (a `v*` tag), `www`, Email Routing, and the mail's spam placement. See Working Notes "Slice 14 session" and "first staging deploy".
 
 - Staging deploy on push to `main`, prod on tag, remote migrations, custom
   domains and DNS (§14). The secrets step is done (`IP_HASH_SECRET` and `ADMIN_TOKEN` are on both Workers). The first staging deploy also
@@ -1917,18 +1947,15 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 14: deploy, the first run.** The pipeline is on `feat/deploy` (Working Notes "Slice 14 session"). What's left needs the user or a
-live run:
+**Slice 14: deploy, prod and the rest.** Staging is live and checked (Working Notes "first staging deploy"). Left:
 
-1. The user deletes the old DNS records (apex `A` to `46.101.96.143`, wildcard `*.wordless.one`, `www` `CNAME` to GoDaddy). Keep the 3 MX,
-   SPF, DKIM and `_dmarc`. Check the zone afterwards with `dig` (the apex and `staging.` should not resolve until the deploy).
-2. Push `feat/deploy` and open the PR; its `check` job is the first CI run of `vp test` on `ubuntu-latest`. Merging deploys staging.
-3. Watch the `staging` job. If `wrangler deploy` fails on the Custom Domain, the token probably needs Zone Read (or DNS Edit) on
-   `wordless.one`; the user adds it, then re-run the job.
-4. On staging: request a recovery mail to a **non-verified** address (Open Question 2: it confirms Workers Paid), and run the §2.3
-   heartbeat with `curl`.
-5. Prod: push a `v0.1.0` tag (ask the user first). Then `www`: a proxied placeholder record and a Redirect Rule to the apex (dashboard;
-   ask first). Email Routing for `abuse@` and `privacy@wordless.one` (DNS; ask first) before launch.
+1. Prod: ask the user, then tag `v0.1.0` on `main` and push the tag. The `production` job migrates `wordless-prod` (never read so far, so
+   `0000_init` may still be pending), deploys `wordless.one`, and runs the smoke test (empty feed: two checks skipped).
+2. `www.wordless.one`: a proxied placeholder record and a Redirect Rule to the apex, 301 (dashboard; ask first).
+3. Email Routing for `abuse@` and `privacy@wordless.one` (DNS; ask first) before launch.
+4. Recovery mail lands in spam although SPF and DKIM pass and align: likely reputation. Watch it once real mail flows; a "not spam" mark
+   helps Gmail. No DNS change is called for.
+5. Optional follow-up: the `/@<rejected name>` `307` (see the notes).
 
 Still deferred or waiting: Slice 1.1 (Rate Limiting binding, Open Question 1), Slice 15 (observability, needs a binding), `/og.png` and a
 favicon (need an image from the user).

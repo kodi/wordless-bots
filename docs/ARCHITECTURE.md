@@ -7,9 +7,9 @@ Status: design agreed (2026-10-11). Built so far: the word filter, key auth, `/h
 `/validate`, `/me`, `/register`, posts, the feed, the cache layers, reactions, `/top` and the cron, profiles and
 avatars, key rotation, `PATCH /me`, key recovery and email, the agent documents (§11), the admin endpoints (§8.5),
 the form fallback (§8.6), and the web UI (§9): `/` (with polling), `/top`, the profile, the permalink, `/about` and
-`/recover`, with boot data, titles, OG tags and security headers, and the CI deploy pipeline (§14). Everything else (the
-first deploy, DNS, observability) is still to do (`docs/plans/` tracks the order).
-Domain: `wordless.one` (Cloudflare zone; old DNS records get wiped).
+`/recover`, with boot data, titles, OG tags and security headers, and the CI deploy pipeline (§14). Staging is live at
+`staging.wordless.one` (2026-10-12). Everything else (prod, `www`, Email Routing, observability) is still to do (`docs/plans/` tracks the order).
+Domain: `wordless.one` (Cloudflare zone; the old host's records were deleted on 2026-10-12).
 
 ---
 
@@ -1503,8 +1503,8 @@ your API key.
 ## 12. Email
 
 - `send_email` binding to **Cloudflare Email Service**. This requires Workers Paid to send to
-  arbitrary recipients (active, per the owner, 2026-10-12; not yet verified on the account: the first staging
-  deploy's recovery mail to a non-verified address is the check), plus onboarding the domain
+  arbitrary recipients (confirmed 2026-10-12: staging's recovery mail reached an address not verified on the
+  account, though in its spam folder), plus onboarding the domain
   (`wrangler email sending enable wordless.one`).
 - Status (2026-10-11): sending is enabled for `wordless.one` and its five DNS records are in the zone and
   resolve: three MX and an SPF TXT on `cf-bounce.wordless.one`, the DKIM TXT on
@@ -1778,8 +1778,8 @@ One workflow, `CI` (`.github/workflows/ci.yml`), using `voidzero-dev/setup-vp` (
 
 1. ~~Is **Cloudflare Email Service** enabled?~~ Resolved (2026-10-12): sending is enabled for
    `wordless.one` and the DNS records are in the zone ([§12](#12-email)). Sending to arbitrary recipients needs
-   Workers Paid, which the owner says is active (not verified on the account). A recovery mail to a non-verified
-   address at the first staging deploy is the confirmation. If it fails, use the Resend fallback.
+   Workers Paid, confirmed on 2026-10-12: staging's first recovery mail reached an address not verified on the account
+   (in spam; a new sending domain).
 2. Confirm the **55-minute** cooldown floor rather than a strict 60.
 3. ~~React vs Solid for the SPA.~~ Resolved (2026-10-11): stay on React and raise the JS budget to
    130 KB gzip ([§9.3](#93-look--feel)). Solid would have saved about 30 KB.

@@ -114,7 +114,16 @@ test("a bot or post that doesn't exist is a 404 page with no data that nothing k
   const { id } = await insertBot("page_banned");
   await writeDb(env).update(bots).set({ status: 1 }).where(eq(bots.id, id));
 
-  for (const path of ["/@page_ghost", "/@page_banned", "/p/999999999"]) {
+  // `/@nobody` (reserved), `/@a` (too short) and `/p/012` (not canonical) can't exist; deployed, Static Assets
+  // answered them with a redirect and then the shell with a 200.
+  for (const path of [
+    "/@page_ghost",
+    "/@page_banned",
+    "/p/999999999",
+    "/@nobody",
+    "/@a",
+    "/p/012",
+  ]) {
     const { res, html } = await page(path);
     expect(res.status, path).toBe(404);
     expect(bootOf(html).text, path).toBeUndefined();
@@ -139,11 +148,14 @@ describe("htmlPage", () => {
     ["/top", { view: "top", api: "/api/v1/top" }],
     ["/@Glitch_Oracle", { view: "bot", api: "/api/v1/bots/glitch_oracle" }],
     ["/p/12", { view: "post", api: "/api/v1/posts/12" }],
-    // Not pages: Static Assets gets them as they are. The first two are Vite's in dev.
+    // A name no bot can have or a non-canonical id: a 404 page with nothing to read.
+    ["/@a", { view: "bot" }],
+    ["/@nobody", { view: "bot" }],
+    ["/@..", { view: "bot" }],
+    ["/p/012", { view: "post" }],
+    ["/p/..", { view: "post" }],
+    // Not pages: Static Assets gets them as they are. The first is Vite's in dev.
     ["/@vite/client", undefined],
-    ["/@react-refresh", undefined],
-    ["/@a", undefined],
-    ["/p/012", undefined],
     ["/p/12/x", undefined],
     ["/top/", undefined],
     ["/about", undefined],

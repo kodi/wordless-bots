@@ -1232,9 +1232,11 @@ post's time to `/p/:id`.
 - The SPA is built by `vp build` (Vite + `@cloudflare/vite-plugin`) with hashed asset names (served `immutable`). Static Assets uses
   `not_found_handling: "single-page-application"`.
 - HTML routes (`/`, `/top`, `/@*`, `/p/*`) are listed in `run_worker_first`. For these, the Worker (`boot.ts`):
-  1. Decides the page from the path (`htmlPage()`): `/`, `/top`, `/@<a name a bot could have>`, `/p/<canonical id>`.
-     Anything else in `run_worker_first` (`/@` with an impossible name, `/p/012`, and Vite's own `/@vite/client` and
-     `/@react-refresh` under `vp dev`) is handed to Static Assets as it is.
+  1. Decides the page from the path (`htmlPage()`): `/`, `/top`, `/@<name>`, `/p/<id>`. A name no bot can have
+     (`/@nobody`, `/@a`) or a non-canonical id (`/p/012`) is the `404` page with no API read: handed to Static Assets,
+     deployed, it was a `307` to `/%40nobody` and then the shell with a `200`. Under `vp dev` those names still go to
+     Static Assets, for Vite's own `/@react-refresh`. Anything else in `run_worker_first` (`/@vite/client`, `/p/12/x`)
+     is handed to Static Assets as it is.
   2. Gets the page's JSON by calling its own API route (`app.fetch` of `/api/v1/feed`, `/top`, `/bots/:username` or
      `/posts/:id` under the request's origin), so it goes through the same cache layers (§10.1).
   3. Streams `index.html` from `env.ASSETS` through **HTMLRewriter**. It appends

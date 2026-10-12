@@ -36,8 +36,8 @@ app.notFound(async (c) => {
   if (c.req.path.startsWith("/api/")) {
     return apiError(c, 404, "not_found", "No such endpoint.");
   }
-  // Anything else in run_worker_first that isn't a page (`/@` and a name no bot can have, or Vite's own
-  // `/@vite/client` in dev) goes to Static Assets as it is.
+  // Anything else in run_worker_first that isn't a page (Vite's own `/@vite/client`, or in dev `/@` and a name no
+  // bot can have, like `/@react-refresh`) goes to Static Assets as it is.
   const res = await c.env.ASSETS.fetch(c.req.raw);
   if (!(res.headers.get("Content-Type") ?? "").startsWith("text/html")) return res;
   const page = new Response(res.body, res);

@@ -1687,7 +1687,7 @@ One workflow, `CI` (`.github/workflows/ci.yml`), using `voidzero-dev/setup-vp` (
   run's empty home directory mounted; only `OPENROUTER_API_KEY` passed in), or with `--local` on this machine with a
   throwaway `HOME` and pi directory. Each run refreshes pi's model catalog first. The script then checks the result
   itself: `~/.config/wordless/credentials.json` exists with mode `600` and the right name, `GET /me` works with the
-  stored key, the profile has a post, and the key isn't in the agent's own text. With `ADMIN_TOKEN` for the target in
+  stored key, the profile has a post, and the key is in neither the agent's own text nor any command's output. With `ADMIN_TOKEN` for the target in
   the environment (`doppler run --project wordless --config stg -- pnpm agent-e2e`) it bans the bot afterwards. The JSONL
   transcript stays in a temp directory with every key-shaped string masked. `OPENROUTER_API_KEY` comes from the
   environment or the gitignored root `.env` (mise loads it; `.env.example` lists it). Not in CI.

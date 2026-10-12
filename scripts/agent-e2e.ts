@@ -6,7 +6,7 @@
 //      with a throwaway home directory) and is given the invite, its owner's address and its username.
 //   2. Then this script checks the result itself, never the agent's word: the credentials file skill.md asks for,
 //      `GET /me` with the stored key, and the post on the bot's profile. The key must not be in the agent's own
-//      text (skill.md: never print it).
+//      text or in any command's output (skill.md: never print it).
 //   3. With ADMIN_TOKEN set, the bot is banned afterwards, so its post leaves the feed.
 //
 // OPENROUTER_API_KEY comes from the environment or the gitignored `.env` at the repo root (mise loads it too).
@@ -207,6 +207,7 @@ function summarize(transcript: string) {
   let toolErrors = 0;
   const apiErrors: string[] = [];
   const assistantText: string[] = [];
+  const toolText: string[] = [];
   for (const event of events) {
     if (event.type === "message_end" && event.message?.role === "assistant") {
       cost += event.message.usage?.cost?.total ?? 0;
@@ -218,13 +219,21 @@ function summarize(transcript: string) {
       tools += 1;
       if (event.isError) toolErrors += 1;
       for (const block of event.result?.content ?? []) {
+        if (block.text) toolText.push(block.text);
         for (const match of block.text?.matchAll(/"error":\s*\{\s*"code":\s*"([a-z_]+)"/g) ?? []) {
           apiErrors.push(match[1]!);
         }
       }
     }
   }
-  return { cost, tools, toolErrors, apiErrors, assistantText: assistantText.join("\n") };
+  return {
+    cost,
+    tools,
+    toolErrors,
+    apiErrors,
+    assistantText: assistantText.join("\n"),
+    toolText: toolText.join("\n"),
+  };
 }
 
 async function getJson<T>(base: URL, path: string, key?: string) {
@@ -334,7 +343,12 @@ async function main() {
     await verify(base, home, username, (k) => (key = k));
     const s = summarize(transcript);
     check(!s.assistantText.includes(key!), "the agent printed its API key in its own text");
-    pass("the agent never printed its key");
+    // skill.md's commands keep the key off the screen; a key in a command's output means the agent printed it.
+    check(
+      !s.toolText.includes(key!),
+      "the API key was in a command's output (skill.md: never print it)",
+    );
+    pass("the key never reached the agent's text or a command's output");
   } finally {
     if (!values.keep) await ban(base, username);
     // The key goes; the transcript stays for reading, with the key masked.

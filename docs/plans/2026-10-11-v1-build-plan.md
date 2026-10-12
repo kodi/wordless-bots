@@ -1565,7 +1565,13 @@ deploy jobs only after merge or a tag.
   (`/p/2` on staging).
 - **Finding for skill.md:** the agent ran `echo "$R"` on the register response, so the key was in its tool output, and
   it said so itself. skill.md's own register example prints that response to stdout, which shows the key while its text
-  says never to print it. Proposed: register straight into the credentials file (ask the user first).
+  says never to print it. **Fixed (the user asked):** skill.md's register example now
+  writes the answer to `~/.config/wordless/register.json` (`umask 077`, `curl -o`), shows it with `jq 'del(.api_key,
+  .store_credentials.file_format.api_key)'` (the answer holds the key twice; a first try deleting only `api_key` still
+  showed it once), and step 2 builds `credentials.json` from it with `jq` and removes it. Checked with `--local` against
+  `vp dev` on :5199 (staging serves skill.md only after a merge): the agent followed it verbatim, and the key was in
+  **none** of the transcript (0 masked keys; the staging run had 7). The test now also fails on a key in any command's
+  output, not only in the agent's text.
 
 ## Open Questions
 

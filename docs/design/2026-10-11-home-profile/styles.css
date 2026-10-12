@@ -1,0 +1,585 @@
+/* Isolated design study. No production styles or external resources. */
+:root {
+  color-scheme: light dark;
+  font-family:
+    ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace, "Apple Color Emoji",
+    "Segoe UI Emoji", "Noto Color Emoji";
+  font-synthesis: none;
+  --bg: #f7f5ef;
+  --surface: #fcfbf7;
+  --ink: #292820;
+  --muted: #757269;
+  --line: #dedbd2;
+  --accent: #974b32;
+  --tint: #efe4da;
+  background: var(--bg);
+  color: var(--ink);
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flow-root;
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--bg);
+  color: var(--ink);
+}
+#feed-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+a:hover,
+button:hover {
+  color: var(--accent);
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 5px;
+}
+.skip {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  background: var(--surface);
+  padding: 8px;
+  z-index: 10;
+}
+.skip:focus {
+  top: 8px;
+}
+.masthead {
+  max-width: 1080px;
+  margin: auto;
+  height: 108px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+}
+.brand {
+  font-size: 19px;
+  letter-spacing: -1.2px;
+  font-weight: 700;
+}
+.brand i {
+  color: var(--accent);
+  font-style: normal;
+}
+.agent-link {
+  font-size: 11px;
+  color: var(--muted);
+}
+.layout {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 32px;
+  display: grid;
+  grid-template-columns: 160px minmax(0, 650px) 1fr;
+  gap: 34px;
+}
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  padding-top: 12px;
+}
+.rail a,
+.rail button {
+  border: 0;
+  background: transparent;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  border-radius: 50%;
+}
+.rail [aria-current="page"] {
+  background: var(--tint);
+  color: var(--accent);
+}
+.rail .ornament {
+  color: var(--line);
+  margin: 60px 0 0 18px;
+  white-space: pre;
+  line-height: 2;
+}
+main {
+  min-width: 0;
+}
+.feed-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 68px;
+  border-bottom: 1px solid var(--line);
+}
+h1 {
+  font-size: 14px;
+  margin: 0;
+  font-weight: 400;
+}
+.date {
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 1px;
+}
+.new-posts {
+  display: block;
+  margin: 20px auto 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 30px;
+  padding: 5px 20px;
+  color: var(--accent);
+  font-size: 12px;
+}
+.post {
+  border-bottom: 1px solid var(--line);
+  padding: 28px 0 26px;
+  min-width: 0;
+}
+.post header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.avatar {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  background: var(--tint);
+  padding: 5px;
+  image-rendering: pixelated;
+}
+.author {
+  font-size: 11px;
+}
+time {
+  color: var(--muted);
+  font-size: 10px;
+  margin-left: auto;
+}
+.art {
+  font: inherit;
+  font-size: 22px;
+  line-height: 1.65;
+  white-space: pre;
+  overflow-x: auto;
+  margin: 24px 0 22px 42px;
+  padding-bottom: 4px;
+}
+.reactions {
+  margin-left: 42px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.reactions span {
+  white-space: nowrap;
+}
+.reactions .total {
+  margin-left: auto;
+  font-size: 10px;
+}
+.end {
+  text-align: center;
+  padding: 28px;
+  color: var(--muted);
+  letter-spacing: 7px;
+}
+.identity {
+  padding: 28px 0 30px;
+  border-bottom: 1px solid var(--line);
+}
+.identity .avatar {
+  width: 76px;
+  height: 76px;
+  padding: 13px;
+  margin-bottom: 18px;
+}
+.identity h1 {
+  font-size: 22px;
+  letter-spacing: -1px;
+}
+.bio {
+  margin: 12px 0 26px;
+  font-size: 21px;
+}
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  font-size: 12px;
+}
+.stats span {
+  color: var(--muted);
+}
+.joined {
+  color: var(--muted);
+  font-size: 10px;
+  margin: 14px 0 0;
+}
+.profile .feed-heading {
+  height: 57px;
+}
+.margin-mark {
+  writing-mode: vertical-rl;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 4px;
+  padding-top: 26px;
+  justify-self: end;
+}
+.footer {
+  max-width: 650px;
+  margin: 30px auto 45px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 10px;
+  padding: 0 20px;
+}
+.study-link {
+  display: block;
+  margin-top: 12px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+dialog {
+  max-width: 440px;
+  width: calc(100% - 40px);
+  padding: 30px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+dialog::backdrop {
+  background: #0008;
+}
+dialog h2 {
+  font-size: 18px;
+}
+dialog button {
+  background: transparent;
+  border: 1px solid var(--line);
+  padding: 6px 16px;
+}
+[hidden] {
+  display: none !important;
+}
+/* B: a denser instrument panel; a persistent square navigation rail. */
+.signal {
+  --bg: #f0f2eb;
+  --surface: #fafcf5;
+  --ink: #252d1c;
+  --muted: #647053;
+  --line: #cad2be;
+  --accent: #4b651d;
+  --tint: #e3ebd2;
+}
+.signal .masthead {
+  height: 82px;
+  max-width: 980px;
+  border-bottom: 1px solid var(--line);
+}
+.signal .brand {
+  color: var(--accent);
+  font-size: 16px;
+  letter-spacing: -0.7px;
+}
+.signal .layout {
+  max-width: 980px;
+  grid-template-columns: 62px minmax(0, 1fr) 32px;
+  gap: 22px;
+}
+.signal .rail {
+  border-right: 1px solid var(--line);
+  padding-top: 22px;
+}
+.signal .rail a,
+.signal .rail button {
+  border-radius: 0;
+  width: 40px;
+  height: 40px;
+}
+.signal .feed-heading {
+  height: 62px;
+  border: 0;
+}
+.signal .post {
+  border: 1px solid var(--line);
+  padding: 18px 22px;
+  margin-bottom: 12px;
+  background: var(--surface);
+}
+.signal .art {
+  font-size: 20px;
+  margin-top: 17px;
+  margin-bottom: 17px;
+}
+.signal .avatar {
+  background: var(--tint);
+}
+.signal .new-posts {
+  border-radius: 0;
+  margin: 0 0 12px auto;
+  background: var(--tint);
+}
+.signal .identity {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  margin-top: 24px;
+  padding: 25px;
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 0 24px;
+}
+.signal .identity .avatar {
+  grid-row: 1 / 6;
+}
+.signal .identity h1 {
+  font-size: 20px;
+}
+.signal .identity .bio {
+  margin: 8px 0 15px;
+}
+.signal .identity .stats {
+  gap: 18px;
+}
+.signal .identity .joined {
+  margin-top: 10px;
+}
+/* C: a soft gallery; horizontal navigation and generous framed artwork. */
+.gallery {
+  --bg: #f3f1fa;
+  --surface: #fff;
+  --ink: #302642;
+  --muted: #796c8b;
+  --line: #e4deef;
+  --accent: #7651b3;
+  --tint: #e9e0f8;
+}
+.gallery .masthead {
+  max-width: 880px;
+  height: 100px;
+}
+.gallery .brand {
+  letter-spacing: -1px;
+}
+.gallery .layout {
+  max-width: 880px;
+  display: block;
+}
+.gallery .rail {
+  flex-direction: row;
+  justify-content: center;
+  padding: 0 0 22px;
+  gap: 18px;
+}
+.gallery .rail a,
+.gallery .rail button {
+  width: 48px;
+  height: 42px;
+  border-radius: 16px;
+}
+.gallery .ornament,
+.gallery .margin-mark {
+  display: none;
+}
+.gallery .feed-heading {
+  max-width: 680px;
+  margin: auto;
+  border: 0;
+  height: 46px;
+}
+.gallery .feed {
+  max-width: 680px;
+  margin: auto;
+}
+.gallery .post {
+  padding: 24px 28px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  margin: 18px 0;
+}
+.gallery .avatar {
+  border-radius: 9px;
+}
+.gallery .art {
+  width: max-content;
+  max-width: 100%;
+  margin: 34px auto;
+  text-align: left;
+  font-size: 25px;
+}
+.gallery .reactions {
+  margin-left: 0;
+  justify-content: center;
+}
+.gallery .reactions .total {
+  margin-left: 0;
+}
+.gallery .new-posts {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  margin-top: 12px;
+}
+.gallery .identity {
+  text-align: center;
+  border: 0;
+  padding: 24px 0 32px;
+}
+.gallery .identity .avatar {
+  width: 96px;
+  height: 96px;
+  padding: 23px;
+  border-radius: 32px;
+  margin-bottom: 12px;
+}
+.gallery .identity .bio {
+  margin: 12px 0 20px;
+}
+.gallery .stats {
+  justify-content: center;
+}
+.gallery .profile .feed-heading {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #201f1c;
+    --surface: #272622;
+    --ink: #eeeae1;
+    --muted: #aaa69a;
+    --line: #434039;
+    --accent: #e0a083;
+    --tint: #413127;
+  }
+  .signal {
+    --bg: #10130f;
+    --surface: #161a14;
+    --ink: #e2e8da;
+    --muted: #98a58a;
+    --line: #343e2d;
+    --accent: #b8dc7d;
+    --tint: #2b3820;
+  }
+  .gallery {
+    --bg: #1c1826;
+    --surface: #282232;
+    --ink: #f0eaf9;
+    --muted: #b3a5c5;
+    --line: #433751;
+    --accent: #b799e7;
+    --tint: #45335f;
+  }
+  .gallery .new-posts {
+    color: #20152e;
+  }
+}
+@media (max-width: 650px) {
+  .masthead,
+  .signal .masthead,
+  .gallery .masthead {
+    height: 74px;
+    padding: 0 20px;
+  }
+  .brand {
+    font-size: 17px;
+  }
+  .layout,
+  .signal .layout {
+    display: block;
+    padding: 0 20px;
+  }
+  .rail,
+  .signal .rail {
+    flex-direction: row;
+    border: 0;
+    padding: 0;
+    gap: 12px;
+  }
+  .rail .ornament,
+  .margin-mark {
+    display: none;
+  }
+  .rail a,
+  .rail button {
+    width: 42px;
+    height: 42px;
+  }
+  .feed-heading {
+    height: 58px;
+  }
+  .post {
+    padding: 23px 0;
+  }
+  .art {
+    font-size: 18px;
+    margin-left: 0;
+  }
+  .reactions {
+    margin-left: 0;
+    gap: 13px;
+  }
+  .identity {
+    padding-top: 24px;
+  }
+  .identity h1 {
+    font-size: 20px;
+  }
+  .signal .post {
+    padding: 17px;
+  }
+  .signal .art {
+    font-size: 17px;
+  }
+  .signal .identity {
+    display: block;
+    padding: 20px;
+  }
+  .signal .identity .avatar {
+    margin-bottom: 12px;
+  }
+  .gallery .layout {
+    padding: 0 16px;
+  }
+  .gallery .rail {
+    padding-bottom: 12px;
+  }
+  .gallery .post {
+    padding: 20px;
+    border-radius: 16px;
+  }
+  .gallery .art {
+    font-size: 20px;
+    text-align: left;
+    margin: 28px 0;
+  }
+  .gallery .feed-heading {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+}

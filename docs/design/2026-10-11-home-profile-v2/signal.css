@@ -1,0 +1,345 @@
+/* 02 Signal: an instrument panel. Posts are channels; reactions are a measured readout. */
+.signal {
+  --bg: #eef1e8;
+  --surface: #fafcf5;
+  --ink: #252d1c;
+  --muted: #647053;
+  --line: #cad2be;
+  --accent: #4b651d;
+  --tint: #e1e9cf;
+  --gut: max(20px, calc(50% - 434px));
+}
+@media (prefers-color-scheme: dark) {
+  .signal {
+    --bg: #10130f;
+    --surface: #161a14;
+    --ink: #e2e8da;
+    --muted: #98a58a;
+    --line: #2f3929;
+    --accent: #b8dc7d;
+    --tint: #222c1a;
+  }
+}
+.signal .top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  padding: 0 var(--gut);
+  border-bottom: 1px solid var(--line);
+}
+.signal .brand {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.7px;
+  color: var(--accent);
+}
+.signal .skill {
+  font-size: 11px;
+  color: var(--muted);
+}
+.signal .shell {
+  display: grid;
+  grid-template-columns: 136px minmax(0, 1fr);
+  gap: 20px;
+  padding: 0 var(--gut);
+}
+.signal .rail {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  flex-direction: column;
+  gap: 2px;
+  height: calc(100vh - 49px);
+  padding: 12px 12px 0 0;
+  border-right: 1px solid var(--line);
+}
+.signal .nav a,
+.signal .nav button {
+  gap: 10px;
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.signal .nav .ico {
+  width: 18px;
+  font-size: 15px;
+  text-align: center;
+}
+.signal .nav .lbl {
+  color: var(--muted);
+}
+.signal .nav [aria-current="page"] {
+  background: var(--tint);
+  box-shadow: inset 2px 0 var(--accent);
+}
+.signal .nav [aria-current="page"] .lbl,
+.signal .nav :hover .lbl {
+  color: var(--accent);
+}
+.signal main {
+  min-width: 0;
+  max-width: 680px;
+  padding-bottom: 8px;
+}
+.signal .feed-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  font-size: 12px;
+}
+.signal .feed-heading h1,
+.signal .feed-heading h2 {
+  font-size: 12px;
+  font-weight: 400;
+}
+.signal .live {
+  width: 7px;
+  height: 7px;
+  background: var(--accent);
+  animation: blink 1.2s steps(1) infinite;
+}
+.signal.is-top .live {
+  display: none;
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+.signal .date {
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+.signal .new-posts {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 5px 0;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--tint);
+  border: 1px dashed var(--accent);
+}
+
+/* A channel: header, the signal itself, then a recessed readout strip. */
+.signal .post,
+.signal .panel {
+  margin-bottom: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.signal .post > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px 0;
+  font-size: 12px;
+}
+.signal .post .avatar {
+  width: 20px;
+  height: 20px;
+}
+.signal .post time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+.signal .pid {
+  font-size: 11px;
+  color: var(--muted);
+}
+.signal .art {
+  padding: 10px 12px 14px;
+  font-size: 19px;
+  line-height: 1.45;
+}
+.signal .readout {
+  padding: 8px 12px 10px;
+  font-size: 11px;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+.signal .legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin-bottom: 7px;
+}
+.signal .legend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.signal .legend i {
+  width: 7px;
+  height: 7px;
+  background: var(--accent);
+}
+.signal .legend .none {
+  color: var(--muted);
+}
+.signal .legend .sum {
+  margin-left: auto;
+  color: var(--accent);
+}
+.signal .track {
+  height: 6px;
+  background: repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px 5px);
+}
+.signal .fill {
+  display: flex;
+  gap: 1px;
+  height: 100%;
+  width: calc(var(--t) / var(--max, var(--t)) * 100%);
+}
+.signal .fill span {
+  flex: var(--n) 1 0;
+  background: var(--accent);
+}
+/* Solid steps from the accent towards the strip's background, so the ticks never show through. */
+.signal .fill :nth-child(2),
+.signal .legend :nth-child(2) i {
+  background: color-mix(in srgb, var(--accent) 68%, var(--bg));
+}
+.signal .fill :nth-child(3),
+.signal .legend :nth-child(3) i {
+  background: color-mix(in srgb, var(--accent) 46%, var(--bg));
+}
+.signal .fill :nth-child(4),
+.signal .legend :nth-child(4) i {
+  background: color-mix(in srgb, var(--accent) 30%, var(--bg));
+}
+.signal .fill :nth-child(5),
+.signal .legend :nth-child(5) i {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+}
+.signal .fill .rest,
+.signal .legend .rest i {
+  background: var(--line);
+}
+
+/* Top 24h: numbered channels, and every bar measured against the leader. */
+.signal .feed {
+  counter-reset: rank;
+}
+.signal.is-top .post > header::before {
+  counter-increment: rank;
+  content: counter(rank, decimal-leading-zero);
+  padding: 1px 5px;
+  font-size: 11px;
+  color: var(--surface);
+  background: var(--accent);
+}
+.signal.is-top .track {
+  height: 10px;
+}
+.signal.is-top .legend .sum {
+  font-size: 14px;
+}
+.signal .end {
+  padding: 8px 0 20px;
+  text-align: center;
+  color: var(--muted);
+  letter-spacing: 4px;
+}
+.signal .foot {
+  padding: 12px var(--gut) 32px;
+  border-top: 1px solid var(--line);
+}
+
+/* Profile: identity panel, with its counters on the same readout strip as reactions. */
+.signal .identity {
+  margin-top: 16px;
+}
+.signal .id-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px;
+}
+.signal .identity .avatar {
+  width: 64px;
+  height: 64px;
+}
+.signal .identity h1 {
+  font-size: 16px;
+  font-weight: 400;
+}
+.signal .bio {
+  margin-top: 2px;
+  font-size: 22px;
+  line-height: 1.35;
+}
+.signal .stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0;
+}
+.signal .stats div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 14px 9px;
+}
+.signal .stats div + div {
+  border-left: 1px solid var(--line);
+}
+.signal .stats dt {
+  color: var(--muted);
+}
+.signal .stats dd {
+  font-size: 15px;
+}
+
+@media (max-width: 640px) {
+  .signal {
+    --gut: 12px;
+  }
+  .signal .top {
+    height: 44px;
+  }
+  .signal .shell {
+    display: block;
+  }
+  .signal .rail {
+    z-index: 2;
+    flex-direction: row;
+    height: auto;
+    margin: 0 -12px;
+    padding: 0;
+    background: var(--bg);
+    border: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .signal .nav a,
+  .signal .nav button {
+    flex: 1;
+    justify-content: center;
+    gap: 6px;
+    height: 40px;
+  }
+  .signal .nav [aria-current="page"] {
+    box-shadow: inset 0 -2px var(--accent);
+  }
+  .signal .art {
+    font-size: 16px;
+  }
+  .signal .identity .avatar {
+    width: 52px;
+    height: 52px;
+  }
+  .signal .bio {
+    font-size: 18px;
+  }
+  .signal .stats div {
+    flex-direction: column;
+    gap: 0;
+    padding: 6px 12px;
+  }
+}

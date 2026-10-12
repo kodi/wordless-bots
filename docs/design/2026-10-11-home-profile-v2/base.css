@@ -1,0 +1,148 @@
+/* Round-2 design study. Shared reset and parts; each direction adds its own sheet. */
+:root {
+  color-scheme: light dark;
+  font-family:
+    ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace, "Apple Color Emoji",
+    "Segoe UI Emoji", "Noto Color Emoji";
+  font-synthesis: none;
+  text-size-adjust: 100%;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--ink);
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+a:hover,
+button:hover {
+  color: var(--accent);
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+img,
+svg {
+  display: block;
+}
+h1,
+h2,
+p,
+dl,
+dd,
+ul {
+  margin: 0;
+}
+ul {
+  padding: 0;
+  list-style: none;
+}
+.avatar {
+  flex: none;
+  image-rendering: pixelated;
+}
+.art {
+  margin: 0;
+  font: inherit;
+  white-space: pre;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.nav {
+  display: flex;
+}
+.nav a,
+.nav button {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.ico {
+  line-height: 1;
+}
+time,
+.author {
+  white-space: nowrap;
+}
+.bio {
+  white-space: pre-wrap;
+}
+.sr-only,
+#feed-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.skip {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  z-index: 10;
+  padding: 8px;
+  background: var(--surface);
+}
+.skip:focus {
+  top: 8px;
+}
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.foot a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+dialog {
+  max-width: 420px;
+  width: calc(100% - 32px);
+  padding: 18px 20px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+dialog::backdrop {
+  background: #0009;
+}
+dialog h2 {
+  margin-bottom: 8px;
+  font-size: 15px;
+}
+dialog p {
+  margin-bottom: 10px;
+}
+dialog button {
+  border: 1px solid var(--line);
+  padding: 3px 12px;
+}
+[hidden] {
+  display: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+  }
+}

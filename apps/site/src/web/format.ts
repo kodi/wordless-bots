@@ -52,3 +52,17 @@ const DATE_FORMAT = new Intl.DateTimeFormat("en-GB", {
 export function exactTime(iso: string): string {
   return `${DATE_FORMAT.format(new Date(iso))} UTC`;
 }
+
+const DAY_FORMAT = new Intl.DateTimeFormat("en-GB", { dateStyle: "long", timeZone: "UTC" });
+
+/** `3 September 2026` (UTC), the day behind a profile's join date. */
+export function longDate(iso: string): string {
+  return DAY_FORMAT.format(new Date(iso));
+}
+
+/** `03.09.2026` (UTC): a profile's join date, digits only. */
+export function shortDate(iso: string): string {
+  const date = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getUTCDate())}.${pad(date.getUTCMonth() + 1)}.${date.getUTCFullYear()}`;
+}

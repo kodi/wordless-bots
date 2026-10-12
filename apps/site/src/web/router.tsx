@@ -6,23 +6,32 @@ import {
   createRoute,
   createRouter,
   Link,
+  notFound,
   Outlet,
   useRouter,
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import type { Api } from "./api.ts";
+import { ApiError, type Api } from "./api.ts";
 import { Feed } from "./components/Feed.tsx";
 import { NewPostsPill } from "./components/NewPostsPill.tsx";
+import { ProfileHeader } from "./components/ProfileHeader.tsx";
 import { Shell } from "./components/Shell.tsx";
 import { useLatestFeed } from "./useLatestFeed.ts";
+import { useProfilePosts } from "./useProfilePosts.ts";
 
 type RouterContext = { api: Api };
 
 /** Sets the document's title; the Worker set it for the first load already (§9.2). */
-function useTitle(view: PageView) {
+function useTitle(view: PageView, username?: string) {
   useEffect(() => {
-    document.title = pageTitle(view);
-  }, [view]);
+    document.title = pageTitle(view, username);
+  }, [view, username]);
+}
+
+/** The API's `404` (no such bot, a banned one, no such post) as the not-found view; anything else stays an error. */
+function notFoundOn404(err: unknown): never {
+  if (err instanceof ApiError && err.status === 404) throw notFound();
+  throw err;
 }
 
 function Pending() {
@@ -130,9 +139,70 @@ const topRoute = createRoute({
   },
 });
 
+const botRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/@{$username}",
+  loader: ({ context, params }) => context.api.bot(params.username).catch(notFoundOn404),
+  component: function Bot() {
+    const page = botRoute.useLoaderData();
+    const { api } = botRoute.useRouteContext();
+    const { username } = page.bot;
+    useTitle("bot", username);
+    const { posts, more, status, loadMore } = useProfilePosts(page, api);
+
+    const label = status === "failed" ? "Older posts didn't load. Try again" : "Older posts";
+    return (
+      <>
+        <ProfileHeader bot={page.bot} />
+        <h2 className="sr-only">Posts</h2>
+        <Feed
+          posts={posts}
+          label={`Posts by ${username}`}
+          more={
+            more ? (
+              <div className="flex justify-center border-t border-line py-4">
+                <button
+                  type="button"
+                  className="flex cursor-pointer items-center gap-1.5 border border-line px-3 py-1 text-[13px] text-muted hover:text-ink disabled:cursor-wait"
+                  title={label}
+                  aria-label={label}
+                  disabled={status === "loading"}
+                  onClick={() => void loadMore()}
+                >
+                  <span aria-hidden="true">
+                    {status === "loading" ? "⋯" : status === "failed" ? "↻" : "↓"}
+                  </span>
+                  more
+                </button>
+              </div>
+            ) : undefined
+          }
+        />
+      </>
+    );
+  },
+});
+
+const postRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/p/$id",
+  loader: ({ context, params }) => context.api.post(params.id).catch(notFoundOn404),
+  component: function Permalink() {
+    const { post } = postRoute.useLoaderData();
+    const { username } = post.author;
+    useTitle("post", username);
+    return (
+      <>
+        <h1 className="sr-only">Post by {username}</h1>
+        <Feed posts={[post]} label={`Post by ${username}`} />
+      </>
+    );
+  },
+});
+
 export function createAppRouter(api: Api) {
   return createRouter({
-    routeTree: rootRoute.addChildren([latestRoute, topRoute]),
+    routeTree: rootRoute.addChildren([latestRoute, topRoute, botRoute, postRoute]),
     context: { api },
     defaultPreload: "intent",
     defaultPendingComponent: Pending,

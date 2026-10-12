@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-12 (PR #18, Slices 13a to 13c, merged as `a158676`; handoff for 13d, 13d.1 and 13e).
+Last updated: 2026-10-12 (Slices 13d, 13d.1 and 13e on branch `feat/web-profile`, one commit each, not pushed).
 
 ## Summary
 
@@ -1339,6 +1339,40 @@ PR #18 (13a to 13c) was squash-merged as `a158676`; `main` runs 974 tests. Notes
 - Plain `vp check` still fails on the user's untracked `docs/design/` (use `vp check --no-fmt`, and `vp fmt <paths>` on what you changed). Leave
   `docs/design/` alone.
 
+### 2026-10-12, Slice 13d session (profile and permalink)
+
+Branch `feat/web-profile` off `main` at `090dc96`, committed (not pushed) at the user's request: one branch, one commit per sub-slice. No
+dependency, binding, var, secret or migration.
+
+New: `components/ProfileHeader.tsx`, `web/useProfilePosts.ts`, `BotPostsJson` in `packages/shared` (the worker's `profilePage()` returns it).
+Changed: `web/api.ts` (`bot()`, `post()`, `botPosts()`; route params `encodeURIComponent`ed), `router.tsx` (`/@{$username}`, `/p/$id`,
+`notFoundOn404()`, `useTitle(view, username)`), `Post.tsx` (avatar, name and time are `Link`s; the avatar link `tabIndex={-1}` and
+`aria-hidden`), `Feed.tsx` (`more` takes the end rule's place), `format.ts` (`longDate()`, `shortDate()`), `styles.css` (`banner` utility,
+`--avatar-gap` ring on `avatar`), ARCHITECTURE (header status, §9.1, §9.3 profile and permalink, §15).
+
+- **Decisions worth a look**: an empty bio is the banner with a muted `·` (sr: "No bio."). The join date is `03.09.2026` (UTC) as in the
+  design, `title` "Joined 3 September 2026". The "more" button pages from the oldest post shown, not from the API's absolute `next`. A
+  failed page turns the button into `↻ more` (retry); nothing else shows. `/@!!` (no bot could have it) is served by Static Assets as the
+  SPA fallback (`200`) and shows the not-found view without an API call (the router's own not-found). The permalink is just the one card;
+  the card already links its author.
+- Tests (4 new, 974 to 978, `web-api.test.ts`): profile and post take boot data once, then fetch; missing/banned bot and missing/`012`
+  post are `ApiError(404)`; `x/posts` and `<id>?x` are encoded and reach the API's `404` (unencoded: `400` and `200`); paging 103 posts
+  from the oldest shown walks all, in order, no repeats, with the exact `before=` paths.
+
+Verified (from the repo root):
+
+- `vp check --no-fmt`: clean (96 files). `vp fmt` on the changed paths. `vp test`: 37 files, **978 passed**. `vp run -r build`: passed; SPA
+  JS 313.14 kB, **100.91 kB gzip** (budget 130); CSS 18.94 kB, **5.04 kB gzip** (budget 8); Worker unchanged (125.28 kB gzip).
+- Mutation checks (`$CLAUDE_JOB_DIR/tmp/mutate.py`, `web-api.test.ts`): **6 of 6 caught**: `bot()` or `post()` ignoring boot data, `post()`
+  taking `bot` boot data, no encoding, `before + 1`, `botPosts()` for the wrong bot.
+- Live: the user's `vp dev` (:5173) served Tailwind **uncompiled** (raw `@theme`/`@media source()` in `styles.css`) and its HMR socket
+  answered `400`, so the dev page was unstyled; not touched (it's the user's process; a restart should fix it). Checked in my own
+  `vp preview --port 4174` instead, Playwright with the system Chrome: cold `/@uiprobe_oracle` and `/p/22` make no `/api` request and have
+  the right titles and `og:description`; from `/`, clicking a name opens the profile and clicking a time the permalink with no reload;
+  `/@uiprobe_moss` (58 posts, 57 bulk-inserted by SQL) pages with one `?before=` request, then the button goes and the rainbow rule shows
+  (**a bug found here**: `more && …` passed `false`, which hid the rule; now `undefined`); `/@uiprobe_nobody` and `/p/99999` are `404` with
+  the not-found view; no page errors or CSP reports; 390px has no page scroll; light, dark and phone screenshots match `hash-profile.html`.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -1634,7 +1668,7 @@ Status: `[x]` Done (PR #18).
 
 #### 13d: the profile and the permalink
 
-Status: `[ ]`
+Status: `[x]` Done on `feat/web-profile` (Working Notes 2026-10-12, Slice 13d session). Not pushed.
 
 - Goal: `/@:username` (`hash-profile.html`) and `/p/:id` in the SPA, reading the boot data 13b already injects, and every author name, avatar and time
   linking to them.

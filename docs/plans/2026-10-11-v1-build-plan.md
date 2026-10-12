@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-12 (end of the Slice 13a, 13b and 13c session: the web UI shell, `/`, `/top`, boot data, security headers, polling).
+Last updated: 2026-10-12 (PR #18, Slices 13a to 13c, merged as `a158676`; handoff for 13d, 13d.1 and 13e).
 
 ## Summary
 
@@ -81,8 +81,10 @@ Merged on `main`:
 - #17 Slice 12 form fallback (merged as `4fc15a3`): `readBody()`, the `api_key` form field in `requireBot`, `POST /reactions`,
   `GET /act`, `formFallback` (`form.ts`), `act.ts`.
 
-Open: branch `feat/web-ui-shell`, not pushed: `bc95bd5` (13a + 13b) and the 13c commit after it (Working Notes 2026-10-12, Slice 13a + 13b session and
-Slice 13c session). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+- #18 Slices 13a to 13c, the web UI (squash-merged as `a158676`): Tailwind v4, the Hash shell, `/` and `/top`, `boot.ts` (boot data, titles, OG tags,
+  §9.4 headers), `public/_headers`, polling and the `↑ N` pill, the "Send your bot here" box, the JSON types and `pageTitle()` in `packages/shared`.
+
+Open: nothing (this handoff is on `docs/slice-13d-handoff`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers; also `GET /act`),
 `api.ts` (all `/api/v1` routes so far, `putReaction()` and `sendRecovery()`), `act.ts` (`actPage()`, `resultPage()`, `escapeHtml()`), `form.ts` (`formFallback`, `prefersHtml()`), `admin.ts` (the `/api/admin` routes), `auth.ts` (`requireBot`, `requireAdmin`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -94,7 +96,14 @@ and gap rules), `cache.ts` (L0 and L1: `readLatestCached()`, `cachedResponse()`,
 `deletePost()`, `rotateKey()`, `setBio()`, `issueRecoveryToken()`, `dropRecoveryToken()`, `recoverKey()`, `reactToPost()`, `unreactToPost()`, `visiblePosts()`, `olderPosts()`, `findBotProfile()`, `botPosts()`,
 `botPostsQuery()`, `PostRow`, `postRowColumns`),
 `db/snapshots.ts` (`rebuildLatest()`, `readLatest()`, `rebuildTop24()`, `readTop()`, `topPosts()`, `snapshotAges()`) and
-`db/maintenance.ts` (`deleteStaleRecoveryTokens()`, `reconcileBotCounters()`) and `db/admin.ts` (`adminDeletePost()`, `banBot()`, `unbanBot()`, `adminRotateKey()`).
+`db/maintenance.ts` (`deleteStaleRecoveryTokens()`, `reconcileBotCounters()`) and `db/admin.ts` (`adminDeletePost()`, `banBot()`, `unbanBot()`, `adminRotateKey()`),
+`boot.ts` (`htmlPage()`, `servePage()`, `bootJson()`, `setSecurityHeaders()`; mounted as `app.get("*")` last in `index.ts`).
+SPA layout (`apps/site/src/web/`): `main.tsx` (reads `#boot`, makes the router), `router.tsx` (root shell, `/`, `/top`, `useTitle()`, pending, error and
+not-found views), `api.ts` (`createApi()`: boot data once, then `feed()`, `top()`, `feedSince()`; `ApiError`, `readBoot()`), `poll.ts` (`startLatest()`,
+`receiveLatest()`, `revealLatest()`), `useLatestFeed.ts`, `format.ts` (`relativeTime()`, `compactCount()`, `otherReactions()`, `exactTime()`), `styles.css`
+(theme tokens; `cut`, `panel`, `tag`, `tag-hole`, `avatar`, `spectrum` utilities; breakpoints `side` 80rem, `wide` 70rem, `huge` 92rem) and
+`components/` (`Shell`, `Feed`, `Post`, `Avatar`, `Reactions`, `NewPostsPill`, `BotInvite`). `packages/shared` also has `api-types.ts` (`PostJson`,
+`FeedJson`, `TopJson`, `BotPageJson`, `PostPageJson`, `ProfileJson`) and `pages.ts` (`SITE_NAME`, `pageTitle()`, `Boot`, `BootData`, `PageView`).
 Tests are in `apps/site/test/` with helpers `insertBot()` (accepts `lastPostAt`, `status`, `bio`,
 `createdAt`, `regIpHash`), `seedPost()` (a post through `createPost()` with no cooldown wait),
 `insertPosts()` (bulk insert, no counters; use it to fill a feed), `insertToken()` (a recovery token row; returns the raw token), `fakeEmail()` (an `EmailSender` that keeps what it sent) and `tokenIn()` (the token in a mail's link), `adminApi()` (a call to `/api/admin/*` with the test token, or `token: null` for none), `clearFeed()` (also purges the cached
@@ -110,7 +119,7 @@ reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsern
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 974 tests (57 shared, 506 wordfilter, 411 worker) on `feat/web-ui-shell` after 13c; 967 after 13a + 13b; 915 (57 shared, 506 wordfilter, 352 worker) on `main` at `4fc15a3`; 879 (316 worker) on `main` at `8909b7e`; 861 (298 worker) at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
+Baseline: `vp test` runs 974 tests (57 shared, 506 wordfilter, 411 worker) on `main` at `a158676`; 967 after 13a + 13b; 915 (57 shared, 506 wordfilter, 352 worker) on `main` at `4fc15a3`; 879 (316 worker) on `main` at `8909b7e`; 861 (298 worker) at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
 `fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
@@ -1307,6 +1316,29 @@ Verified (from the repo root):
   back to `visible`, it polled at once and showed the pill. The first post's position didn't move when the pill appeared (390px). No page errors.
   Cleanup: `uiprobe_%` bots and posts deleted, cron re-run; local D1 shows 0 bots, 0 posts, 0 reactions, both snapshots `[]`.
 
+### 2026-10-12, after PR #18 (handoff for the rest of Slice 13)
+
+PR #18 (13a to 13c) was squash-merged as `a158676`; `main` runs 974 tests. Notes for 13d onwards, from what the 13a to 13c session learned:
+
+- **Dev server**: the user's `mise run dev` (`vp dev` on :5173) may be reused for live checks (user's go-ahead, 2026-10-12); it restarts itself when
+  `vite.config.ts` changes. For the production build use your own `vp preview --port 4174 --strictPort` and stop it after (`pkill -f "preview --port
+  4174"`, then check the port is free). `/@user` in `vp preview` reaches the Worker directly (`run_worker_first`); the `/%40user` redirect in §4.1 only
+  happens when Static Assets gets the path.
+- **Seeding**: register through `POST /api/v1/register` with a different `CF-Connecting-IP` per bot (the 5/hour/IP limit), one post per bot (55-minute
+  cooldown), names `uiprobe_*`. Reactions don't rebuild `latest`; trigger the cron with
+  `curl "http://localhost:5173/cdn-cgi/handler/scheduled?cron=*+*+*+*+*"`. `/top` is cached 60 s in L1. Clean up with scoped `DELETE ... WHERE username
+  LIKE 'uiprobe\_%' ESCAPE '\'` (reactions, posts, recovery tokens, bots), then run the cron again so both snapshots are rebuilt.
+- **Browser checks**: Playwright from a scratch directory in the job's tmp (`npm i playwright`, `chromium.launch({ channel: "chrome" })`, the system
+  Chrome); nothing goes into the repo. `addInitScript` overriding `document.visibilityState` simulates a hidden tab.
+- **Tests**: `vp test` has an `ASSETS` service binding that serves `apps/site/index.html` (`vite.config.ts`), so page tests see the real shell. SPA modules
+  without DOM (`web/api.ts`, `poll.ts`, `format.ts`) run in workerd; keep DOM out of anything that needs a test. `test/tsconfig.json` picks web files
+  up through imports.
+- **Gotchas**: `erasableSyntaxOnly` (no constructor parameter properties); lol-html `setAttribute` escapes `"` only (`attributeText()` in `boot.ts`);
+  Tailwind utilities like `shadow-*`, `tabular-nums`, `outline-*` add `@property` fallbacks to the CSS, so prefer plain declarations in `@utility`
+  blocks; `@import "tailwindcss" source("./")` keeps scanning inside `src/web`.
+- Plain `vp check` still fails on the user's untracked `docs/design/` (use `vp check --no-fmt`, and `vp fmt <paths>` on what you changed). Leave
+  `docs/design/` alone.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -1581,12 +1613,100 @@ below: a form can't reach `PUT /posts/:id/reaction`, so react is `POST /reaction
 
 ### Slice 13: the web UI (several PRs)
 
-Status: `[-]` 13a, 13b and 13c done and verified on `feat/web-ui-shell` (Working Notes 2026-10-12, Slice 13a + 13b and Slice 13c sessions); 13d and 13e open. React stays and the JS budget is 130 KB gzip (decided 2026-10-11). The look is the **Hash** direction from `docs/design/2026-10-11-home-profile-v2/`,
-built with Tailwind (user's decision, 2026-10-12; see Next Slice).
+Status: `[-]` 13a, 13b and 13c done (PR #18, merged as `a158676`; Working Notes 2026-10-12, Slice 13a + 13b and Slice 13c sessions). 13d, 13d.1 and
+13e open. React stays and the JS budget is 130 KB gzip (decided 2026-10-11). The look is the **Hash** direction from
+`docs/design/2026-10-11-home-profile-v2/`, built with Tailwind (user's decision, 2026-10-12).
 
-- 13a Tailwind, the shell, and `/` and `/top` from the API; 13b `HTMLRewriter` boot-data injection, titles and OG tags,
-  security headers (§9.2, §9.4); 13c polling and the `↑ N` pill; 13d profile (`hash-profile.html`), permalink, about and
-  recover pages; 13e the Playwright smoke test (styling now lands in 13a, not 13e).
+Order and boundaries (the original "13d" was split in two on 2026-10-12: the profile and permalink read public data the Worker already injects; about and
+recover are SPA-only pages, and recover handles a key):
+
+#### 13a: Tailwind, the shell, `/` and `/top`
+
+Status: `[x]` Done (PR #18).
+
+#### 13b: boot data, titles, OG tags, security headers
+
+Status: `[x]` Done (PR #18). The Worker already serves `/@:username` and `/p/:id` with boot data (`{view: "bot" | "post"}`), titles and OG tags.
+
+#### 13c: polling and the `↑ N` pill
+
+Status: `[x]` Done (PR #18).
+
+#### 13d: the profile and the permalink
+
+Status: `[ ]`
+
+- Goal: `/@:username` (`hash-profile.html`) and `/p/:id` in the SPA, reading the boot data 13b already injects, and every author name, avatar and time
+  linking to them.
+- Why here: the Worker side is done and tested, so this is SPA only; it also removes the plain-text author names 13a left behind.
+- Implement:
+  - `web/api.ts`: `bot(username)` (`GET /api/v1/bots/:username`, takes `bot` boot data), `post(id)` (`GET /api/v1/posts/:id`, takes `post` boot data),
+    `botPosts(username, before)` (`GET /api/v1/bots/:username/posts?before=`, never boot data). `next` in the JSON is an absolute URL: build the path
+    from `before`, don't fetch `next` as given.
+  - Routes: `/@{$username}` (TanStack Router prefix param, §9.1) and `/p/$id`. A loader `ApiError` with status `404` shows the not-found view (throw
+    `notFound()` from the loader, or check in the route's `errorComponent`); other errors keep the retry view.
+  - Profile header per `hash-profile.html`: banner panel (`cut` + `panel`, `--cut: 16px`) filled with `oklch(0.955 0.028 var(--h))` (dark:
+    `oklch(0.24 0.035 var(--h))`), ticks and text in the hue (see `hash.css` `.banner`, `.bio`, `.id-row`, `.identity`, `.stats`), the bio large in
+    mono under a small `bio` label (`white-space: pre`, scrolls), the 112px avatar (76px on phones) overlapping the banner's bottom edge, name `h1`,
+    stats `▤` posts, `♡` reactions received (`compactCount`, exact in `title`), `◷` joined. Decide what an empty bio shows (suggest the banner with a
+    muted `·`). The bot's hue comes from `avatarSpec(username).hue`; set `--h` on the section through `style`, as `Avatar` does.
+  - The profile's posts use `Feed`/`Post` (same card, avatar and name on each, as on X). A "more" button pages with `botPosts()` while `next` isn't
+    `null`; no infinite scroll.
+  - Permalink: one `Post`, plus (optional) a link to the author's profile. Title: `pageTitle("post", username)`.
+  - `Post`: the author name and avatar become `Link`s to `/@{$username}` (the avatar link `tabIndex={-1}`, `aria-hidden`, as in the design), the time a
+    `Link` to `/p/$id`.
+  - `useTitle()` takes the username for `bot` and `post`.
+- Expected output: both pages render from boot data on first load (no API call) and from the API after; `404` for a missing or banned bot and a missing
+  post; ARCHITECTURE §9.1 and §9.3 (the profile header) match.
+- Verification: `vp check --no-fmt`, `vp test`, `vp run -r build` (record JS and CSS gzip). Tests in workerd against the real Worker, like
+  `web-api.test.ts`: `bot()`/`post()` take boot data once, `404` is `ApiError(404)`, `botPosts()` pages with `before` (insert more than
+  `PROFILE_PAGE_SIZE` posts with `insertPosts()`). Mutation-check them. Live: seed bots (see Working Notes, "after PR #18"), open `/@<name>` and
+  `/p/<id>` cold (no `/api` request on load) and by clicking an author and a time from `/`.
+- Dependencies: none beyond PR #18.
+
+#### 13d.1: `/about` and `/recover`
+
+Status: `[ ]`
+
+- Goal: the two prose pages of §9.1, and `∴ about` in the nav.
+- Why here: SPA-only pages, served by Static Assets (`not_found_handling`), not in `run_worker_first`; independent of 13d but after it so the nav and
+  links settle once. `/recover` handles a live API key, so it gets its own review.
+- Implement:
+  - `/about`: a short explainer for humans (prose is allowed there, §9.3), "Bots: read `/skill.md`", and the `BotInvite` box. Add `∴ about` to the nav
+    (`Shell.tsx`). `pageTitle()` needs titles for `about` and `recover`: they aren't boot views, so widen its parameter rather than `PageView`.
+  - `/recover` (§2.4, §8.3): read the token from `location.hash` (`#t=<43 base62 chars>`), then `history.replaceState` it out of the URL. **Confirm
+    only on a click** ("Show my new key"), not on load: a mail scanner that runs scripts would otherwise spend the token. `POST /api/v1/recover/confirm
+    {token}`: `200 {api_key, username}` shows the key once with a copy button and "save it now, the old key is dead"; `410 token_invalid` says the link
+    is used or expired and offers a new one; `403 banned` says so. Never put the key in storage, the URL, a title or a log. With no token: a small form
+    for `POST /api/v1/recover {username}` (always `202`, say "if the bot exists, a mail is on its way").
+  - `public/_headers`: add a `/recover` rule with `X-Robots-Tag: noindex` and `Referrer-Policy: no-referrer` (check that `_headers` merges both rules for
+    that path; verify in `vp preview`).
+  - skill.md: the Slice 10 note said skill.md documents `POST /recover/confirm` "for owners who can't use the page"; keep it, but check its wording now
+    that the page exists.
+- Expected output: both pages, nav, `_headers` rule, ARCHITECTURE §2.4, §9.1, §9.3, §9.4 updated.
+- Verification: the three commands; tests for the token reader (shape, `#t=` only, junk) and the confirm flow against the real Worker with
+  `insertToken()` (`200` once, then `410`; banned `403`); live in `vp preview` with a token from `insertToken`-style SQL or a real `POST /recover` mail
+  read from the dev log (the dev `send_email` binding is simulated).
+- Dependencies: none hard; do after 13d.
+
+#### 13e: the Playwright smoke test
+
+Status: `[ ]`
+
+- Goal: one end-to-end check (ARCHITECTURE §15): home shows posts from the boot data without an `/api` request, `/` to a profile by clicking works, and
+  `/p/:id` has OG tags. It runs against a local `vp preview` now and against staging in Slice 14's pipeline (§14).
+- Why here: last, because it walks 13d's pages.
+- **Ask first**: it needs a dependency. ARCHITECTURE §4 already names "Playwright (1 smoke)", but AGENTS.md says no extra dev tools without asking, and
+  the runner is a choice: `@playwright/test` behind a `vp run smoke` task, or the plain `playwright` library in one script (what the 13a to 13c live
+  checks used, from a scratch install with `channel: "chrome"`). Not `vitest` browser mode: this is a deployed-site check, not a component test.
+- Data: locally the test has to seed (register bots through the API with distinct `CF-Connecting-IP`, post, trigger the cron) and clean up (the admin
+  API, `ADMIN_TOKEN` from `.dev.vars`). Against staging it must only read.
+- Expected output: the test, a `vp run` task, docs (§14, §15, `mise.toml` task if it fits), CI wiring left to Slice 14 / Slice A.
+- Verification: the test passes against `vp preview`; break the boot injection (e.g. no `#boot`) and watch it fail.
+- Dependencies: 13d (profile navigation), the user's answer on the runner.
+
+Still open for the UI, not a slice of its own: an `/og.png` (§9.2) and a favicon need an image from the user; `og:image` goes into `index.html` once one
+exists.
 
 ### Slice 14: deploy
 
@@ -1618,19 +1738,18 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 13d: the profile (`/@:username`), the permalink (`/p/:id`), `/about` and `/recover`.** First get `feat/web-ui-shell` (13a to 13c) pushed and
-merged.
+**Slice 13d: the profile (`/@:username`) and the permalink (`/p/:id`)**, in the SPA. The Worker side (boot data, titles, OG tags, `404` pages) is done
+and tested; see "Slice 13" above for the full list.
 
-- Design: `docs/design/2026-10-11-home-profile-v2/hash-profile.html` (banner panel in a pale `oklch()` tint of the bot's hue holding the bio in large
-  mono, the 112px avatar overlapping it, name and stats `▤ posts`, `♡ reactions`, `◷ joined`). Reuse `Post`, `Avatar`, `Reactions`, `Feed`, `cut`/`panel`.
-- The Worker already serves both pages with boot data (`{view: "bot" | "post"}`), titles and OG tags (13b). Add `api.bot(username)` and `api.post(id)` in
-  `web/api.ts` (they take boot data like `feed`/`top`), the routes (TanStack prefix param `/@{$username}`, §9.1), and a not-found view for an
-  `ApiError` with status `404`. `useTitle()` needs the username (`pageTitle(view, username)`).
-- Make author names and avatars link to profiles and the time link to the permalink (left as plain text in 13a).
-- Profile paging: `next` → `GET /bots/:username/posts?before=` (a "more" button, no infinite scroll needed).
-- `/about`: the human explainer (prose allowed, §9.3) and `∴ about` in the nav. `/recover`: reads `#t=`, calls `POST /api/v1/recover/confirm`, shows
-  the new key once (`private`, never logged), §2.4. Both are SPA-only routes served by Static Assets (headers from `public/_headers`).
-- Still missing: an `/og.png` and a favicon (need an image from the user).
+Start here:
 
-Still deferred or waiting: Slice A (tests in CI, deferred by the user), Slice 1.1 (Rate Limiting binding, Open Question 1), Slice 14 (first deploy; also
-confirms Workers Paid, Open Question 2).
+1. `git fetch origin && git switch main && git pull`, then branch (e.g. `feat/web-profile`). `main` is at `a158676` or later.
+2. Read `AGENTS.md`, the Cross-slice rules, ARCHITECTURE §9.1 to §9.3, `docs/design/2026-10-11-home-profile-v2/hash-profile.html` with `hash.css`
+   (`.identity`, `.banner`, `.bio`, `.id-row`, `.stats`), and Working Notes "after PR #18" (dev server, seeding, browser checks, gotchas).
+3. Read `apps/site/src/web/router.tsx`, `api.ts`, `components/Post.tsx` and `src/worker/boot.ts` (`htmlPage()` shows which paths have boot data).
+4. `vp test` should report 974 passing.
+5. Done when `vp check --no-fmt`, `vp test` and `vp run -r build` pass, the JS and CSS gzip sizes are recorded (budgets 130 KB and 8 KB), ARCHITECTURE
+   matches, the plan marks 13d with the exact commands under Working Notes, and `Next Slice` points at 13d.1.
+
+Open before 13e: which Playwright runner (ask the user; see 13e). Still deferred or waiting: Slice A (tests in CI, deferred by the user), Slice 1.1 (Rate
+Limiting binding, Open Question 1), Slice 14 (first deploy; also confirms Workers Paid, Open Question 2), `/og.png` and a favicon (need an image).

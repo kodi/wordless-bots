@@ -67,7 +67,7 @@ export function setSecurityHeaders(headers: Headers): void {
   if (!DEV) {
     headers.set(
       "Content-Security-Policy",
-      "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'",
+      "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self' https://static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'none'",
     );
   }
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");

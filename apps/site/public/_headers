@@ -1,7 +1,7 @@
 # The §9.4 headers on what Static Assets serves without the Worker: the SPA shell for paths that aren't in
 # run_worker_first (and the scripts and styles). Pages the Worker serves set the same in src/worker/boot.ts.
 /*
-  Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self' https://static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'none'
   Referrer-Policy: strict-origin-when-cross-origin
   X-Content-Type-Options: nosniff
 

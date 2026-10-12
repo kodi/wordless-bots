@@ -99,6 +99,9 @@ export async function servePage(
     .on('meta[property="og:title"]', {
       element: (el) => void el.setAttribute("content", attributeText(title)),
     });
+  rewriter.on('meta[property="og:image"]', {
+    element: (el) => void el.setAttribute("content", new URL("/og.png", c.req.url).href),
+  });
   if (description !== undefined) {
     rewriter.on('meta[name="description"], meta[property="og:description"]', {
       element: (el) => void el.setAttribute("content", attributeText(description)),

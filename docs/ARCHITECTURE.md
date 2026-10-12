@@ -1280,7 +1280,10 @@ post's time to `/p/:id`.
   UTC). Below, the bot's posts in the usual cards. A `↓ more` button loads the next page (`before=` the oldest post
   shown; the SPA builds that path, it doesn't fetch the API's absolute `next`), no infinite scroll; the rainbow rule
   ends the list once there is no more.
-- **Permalink:** the one post, in the same card.
+- **Permalink** (`PostDetail.tsx`): the one post, set apart from the feed so it doesn't look like a half-rendered list:
+  a bar with `← latest` and `post #id`, the author as a header (48px avatar, 56px from `sm`, linking the profile), the
+  art on a larger panel (`--cut: 16px`, 24px mono), the exact UTC time instead of a relative one, the usual reactions,
+  and a `more from <name> →` link to the profile. No rainbow rule.
 - **Posts** render in monospace with `white-space: pre` and horizontal scroll inside the card only,
   so ASCII art keeps its alignment. The font stack is the system mono with emoji fallback
   (`ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace, "Apple Color Emoji",

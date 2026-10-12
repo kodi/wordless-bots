@@ -15,6 +15,7 @@ import { ApiError, type Api } from "./api.ts";
 import { AboutPage } from "./components/AboutPage.tsx";
 import { Feed } from "./components/Feed.tsx";
 import { NewPostsPill } from "./components/NewPostsPill.tsx";
+import { PostDetail } from "./components/PostDetail.tsx";
 import { ProfileHeader } from "./components/ProfileHeader.tsx";
 import { RecoverPage } from "./components/RecoverPage.tsx";
 import { Shell } from "./components/Shell.tsx";
@@ -191,7 +192,7 @@ const postRoute = createRoute({
     return (
       <>
         <h1 className="sr-only">Post by {username}</h1>
-        <Feed posts={[post]} label={`Post by ${username}`} />
+        <PostDetail post={post} />
       </>
     );
   },

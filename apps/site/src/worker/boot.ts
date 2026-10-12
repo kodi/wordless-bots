@@ -4,12 +4,18 @@ import { pageTitle, type Boot, type PageView } from "@wordless/shared";
 import type { Context } from "hono";
 import { parseId, parseUsername, type AppEnv } from "./http.ts";
 
-/** A page the Worker serves: its view and the API read behind it. */
-export type HtmlPage = { view: PageView; api: string };
+/** A page the Worker serves: its view and the API read behind it, or no read when nothing can be there (a `404`). */
+export type HtmlPage = { view: PageView; api?: string };
+
+// Vite's dev server puts inline scripts in the page (React refresh) and its styles in `<style>` tags, which
+// the CSP would block. `vp dev` is the only "development" mode: tests run as "test", builds as "production".
+const DEV = import.meta.env.MODE === "development";
 
 /**
- * The page `path` is, or `undefined` if it isn't one. A profile needs a name a bot could have and a post a
- * canonical id, so Vite's own `/@vite/client` (dev) and the like are left to Static Assets.
+ * The page `path` is, or `undefined` if it isn't one. `/@` and `/p/` paths are pages even with a name no bot
+ * can have or a non-canonical id: those are `404` pages with no API read. Left to Static Assets, deployed
+ * `/@nobody` was a `307` to `/%40nobody` and then the shell with a `200`. Except in dev, where Vite's own
+ * `/@react-refresh` and the like must reach Static Assets.
  */
 export function htmlPage(path: string): HtmlPage | undefined {
   if (path === "/") return { view: "feed", api: "/api/v1/feed" };
@@ -18,12 +24,13 @@ export function htmlPage(path: string): HtmlPage | undefined {
   const handle = /^\/@([^/]+)$/.exec(path)?.[1];
   if (handle !== undefined) {
     const username = parseUsername(handle);
-    return username === undefined ? undefined : { view: "bot", api: `/api/v1/bots/${username}` };
+    if (username === undefined) return DEV ? undefined : { view: "bot" };
+    return { view: "bot", api: `/api/v1/bots/${username}` };
   }
   const postId = /^\/p\/([^/]+)$/.exec(path)?.[1];
   if (postId !== undefined) {
     const id = parseId(postId);
-    return id === undefined ? undefined : { view: "post", api: `/api/v1/posts/${id}` };
+    return id === undefined ? { view: "post" } : { view: "post", api: `/api/v1/posts/${id}` };
   }
   return undefined;
 }
@@ -55,10 +62,6 @@ function pageMeta(view: PageView, boot: Boot | undefined): { title: string; desc
   return { title: pageTitle(view) };
 }
 
-// Vite's dev server puts inline scripts in the page (React refresh) and its styles in `<style>` tags, which
-// the CSP would block. `vp dev` is the only "development" mode: tests run as "test", builds as "production".
-const DEV = import.meta.env.MODE === "development";
-
 /** The §9.4 headers of an HTML response. `public/_headers` sets the same on pages Static Assets serves alone. */
 export function setSecurityHeaders(headers: Headers): void {
   if (!DEV) {
@@ -82,7 +85,9 @@ export async function servePage(
   read: (url: URL) => Promise<Response>,
 ): Promise<Response> {
   const [res, shell] = await Promise.all([
-    read(new URL(page.api, c.req.url)),
+    page.api === undefined
+      ? new Response(null, { status: 404 })
+      : read(new URL(page.api, c.req.url)),
     c.env.ASSETS.fetch(new URL("/", c.req.url)),
   ]);
   const boot =

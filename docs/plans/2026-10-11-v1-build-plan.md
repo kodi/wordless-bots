@@ -4,7 +4,7 @@ Handoff record between sessions. `docs/ARCHITECTURE.md` stays the source of trut
 the API, the data model and infra. This file only tracks the order of work, what was learned, and
 what to do next.
 
-Last updated: 2026-10-12 (PR #18, Slices 13a to 13c, merged as `a158676`; handoff for 13d, 13d.1 and 13e).
+Last updated: 2026-10-12 (Slices 13d, 13d.1 and 13e on branch `feat/web-profile`, one commit each, not pushed).
 
 ## Summary
 
@@ -84,7 +84,8 @@ Merged on `main`:
 - #18 Slices 13a to 13c, the web UI (squash-merged as `a158676`): Tailwind v4, the Hash shell, `/` and `/top`, `boot.ts` (boot data, titles, OG tags,
   §9.4 headers), `public/_headers`, polling and the `↑ N` pill, the "Send your bot here" box, the JSON types and `pageTitle()` in `packages/shared`.
 
-Open: nothing (this handoff is on `docs/slice-13d-handoff`). Check with `git fetch origin && git log origin/main --oneline -3` before branching (see Next Slice).
+Open: branch `feat/web-profile` (not pushed): `ea05399` 13d (profile, permalink), `952dea3` 13d.1 (`/about`, `/recover`) and the 13e commit (the
+smoke test), on top of `main` at `090dc96`. Push it and open the PR (or PRs) before Slice 14; see Next Slice.
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers; also `GET /act`),
 `api.ts` (all `/api/v1` routes so far, `putReaction()` and `sendRecovery()`), `act.ts` (`actPage()`, `resultPage()`, `escapeHtml()`), `form.ts` (`formFallback`, `prefersHtml()`), `admin.ts` (the `/api/admin` routes), `auth.ts` (`requireBot`, `requireAdmin`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -119,12 +120,12 @@ reaction limits), `parseId()` (canonical row id from a URL segment), `parseUsern
 §10.1 `Cache-Control` for public JSON). `packages/shared` holds the feed and profile limits, the avatar generator (`avatar.ts`), `EDGE_TTL_S` (the L1 TTL of each
 public route) and `ISOLATE_TTL_S` (the L0 TTL).
 
-Baseline: `vp test` runs 974 tests (57 shared, 506 wordfilter, 411 worker) on `main` at `a158676`; 967 after 13a + 13b; 915 (57 shared, 506 wordfilter, 352 worker) on `main` at `4fc15a3`; 879 (316 worker) on `main` at `8909b7e`; 861 (298 worker) at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
+Baseline: `vp test` runs 996 tests on `feat/web-profile` (978 after 13d); 974 (57 shared, 506 wordfilter, 411 worker) on `main` at `a158676`; 967 after 13a + 13b; 915 (57 shared, 506 wordfilter, 352 worker) on `main` at `4fc15a3`; 879 (316 worker) on `main` at `8909b7e`; 861 (298 worker) at `3060753`; 830 (267 worker) on `main` at `c8ddbf0`; 809 (246 worker) on `main` at `bd289f4`; 795 (232 worker) at
 `fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
-Not built yet: burst rate limits (the register hourly limit exists), the UI beyond 13a to 13c (profile,
-permalink, about, recover, the smoke test), Analytics Engine events, `/og.png` and a favicon.
+Not built yet: burst rate limits (the register hourly limit exists), the smoke test in CI (Slice 14 / Slice A), Analytics Engine events,
+`/og.png` and a favicon.
 
 Infra reality:
 
@@ -1339,6 +1340,141 @@ PR #18 (13a to 13c) was squash-merged as `a158676`; `main` runs 974 tests. Notes
 - Plain `vp check` still fails on the user's untracked `docs/design/` (use `vp check --no-fmt`, and `vp fmt <paths>` on what you changed). Leave
   `docs/design/` alone.
 
+### 2026-10-12, Slice 13d session (profile and permalink)
+
+Branch `feat/web-profile` off `main` at `090dc96`, committed (not pushed) at the user's request: one branch, one commit per sub-slice. No
+dependency, binding, var, secret or migration.
+
+New: `components/ProfileHeader.tsx`, `web/useProfilePosts.ts`, `BotPostsJson` in `packages/shared` (the worker's `profilePage()` returns it).
+Changed: `web/api.ts` (`bot()`, `post()`, `botPosts()`; route params `encodeURIComponent`ed), `router.tsx` (`/@{$username}`, `/p/$id`,
+`notFoundOn404()`, `useTitle(view, username)`), `Post.tsx` (avatar, name and time are `Link`s; the avatar link `tabIndex={-1}` and
+`aria-hidden`), `Feed.tsx` (`more` takes the end rule's place), `format.ts` (`longDate()`, `shortDate()`), `styles.css` (`banner` utility,
+`--avatar-gap` ring on `avatar`), ARCHITECTURE (header status, §9.1, §9.3 profile and permalink, §15).
+
+- **Decisions worth a look**: an empty bio is the banner with a muted `·` (sr: "No bio."). The join date is `03.09.2026` (UTC) as in the
+  design, `title` "Joined 3 September 2026". The "more" button pages from the oldest post shown, not from the API's absolute `next`. A
+  failed page turns the button into `↻ more` (retry); nothing else shows. `/@!!` (no bot could have it) is served by Static Assets as the
+  SPA fallback (`200`) and shows the not-found view without an API call (the router's own not-found). The permalink is just the one card;
+  the card already links its author.
+- Tests (4 new, 974 to 978, `web-api.test.ts`): profile and post take boot data once, then fetch; missing/banned bot and missing/`012`
+  post are `ApiError(404)`; `x/posts` and `<id>?x` are encoded and reach the API's `404` (unencoded: `400` and `200`); paging 103 posts
+  from the oldest shown walks all, in order, no repeats, with the exact `before=` paths.
+
+Verified (from the repo root):
+
+- `vp check --no-fmt`: clean (96 files). `vp fmt` on the changed paths. `vp test`: 37 files, **978 passed**. `vp run -r build`: passed; SPA
+  JS 313.14 kB, **100.91 kB gzip** (budget 130); CSS 18.94 kB, **5.04 kB gzip** (budget 8); Worker unchanged (125.28 kB gzip).
+- Mutation checks (`$CLAUDE_JOB_DIR/tmp/mutate.py`, `web-api.test.ts`): **6 of 6 caught**: `bot()` or `post()` ignoring boot data, `post()`
+  taking `bot` boot data, no encoding, `before + 1`, `botPosts()` for the wrong bot.
+- Live: the user's `vp dev` (:5173) served Tailwind **uncompiled** (raw `@theme`/`@media source()` in `styles.css`) and its HMR socket
+  answered `400`, so the dev page was unstyled; not touched (it's the user's process; a restart should fix it). Checked in my own
+  `vp preview --port 4174` instead, Playwright with the system Chrome: cold `/@uiprobe_oracle` and `/p/22` make no `/api` request and have
+  the right titles and `og:description`; from `/`, clicking a name opens the profile and clicking a time the permalink with no reload;
+  `/@uiprobe_moss` (58 posts, 57 bulk-inserted by SQL) pages with one `?before=` request, then the button goes and the rainbow rule shows
+  (**a bug found here**: `more && …` passed `false`, which hid the rule; now `undefined`); `/@uiprobe_nobody` and `/p/99999` are `404` with
+  the not-found view; no page errors or CSP reports; 390px has no page scroll; light, dark and phone screenshots match `hash-profile.html`.
+
+### 2026-10-12, Slice 13d.1 session (`/about` and `/recover`)
+
+Same branch, right after the 13d commit. No dependency, binding, var, secret or migration.
+
+New: `web/recover.ts` (pure: `readRecoveryToken()`, `confirmRecovery()`, `requestRecovery()`, `PostJson`), `components/{AboutPage,RecoverPage,
+CopyButton}.tsx`, `RECOVERY_TOKEN_RE` in `packages/shared` (the Worker's `looksLikeRecoveryToken()` uses it too), `TitledPage` (`pageTitle()` takes
+`about` and `recover`; `PageView` unchanged), `test/web-recover.test.ts`. Changed: `router.tsx` (two routes; the router context also carries `post`),
+`main.tsx` (the JSON `post`), `Shell.tsx` (`∴ about`; no collapsed invite row on `/about`), `BotInvite.tsx` (uses `CopyButton`), `public/_headers`
+(`/recover`), skill.md ("pressing Show my new key"), ARCHITECTURE (header status, §2.4, §9.3, §9.4, §15).
+
+- **Decisions worth a look**:
+  - The token is read once into state, then `navigate({ to: "/recover", replace: true })` drops the fragment through the router (a raw
+    `history.replaceState` would leave the router's own location holding the hash). Verified: a fresh tab ends with `history.length` 2 (the blank page and `/recover`), so no entry keeps the hash.
+  - Any status other than `200`, `410` and `403`, or no network, is "failed": the link may still be good, so the button stays for a retry.
+  - The token reader is strict: exactly `#t=<43 base62>`, nothing before or after.
+  - `_headers` merges every matching rule and comma-joins a repeated header (`strict-origin-when-cross-origin, no-referrer`, seen in `vp
+    preview`); `! Referrer-Policy` in the `/recover` rule detaches the `/*` value first.
+  - `/about` shows the invite box open in its text below 1280px (and drops the shell's collapsed row there); from 1280px the sidebar has it.
+    `/recover` keeps the shell's invite.
+- Tests (18 new, 978 to 996, `web-recover.test.ts`): a 14-row `readRecoveryToken` table; a live link gives a key that works on `/me`, kills the
+  old key, and is `invalid` the second time; a banned bot's live link is `banned` and still works after an unban; an unknown token is `invalid`,
+  a `503` or no network is `failed`; `requestRecovery` is `true` for any name and `false` on a `500` or no network.
+
+Verified (from the repo root):
+
+- `vp check --no-fmt`: clean. `vp test`: **996 passed**. `vp run -r build`: passed; SPA JS 320.29 kB, **103.01 kB gzip**; CSS 20.76 kB, **5.37 kB
+  gzip**.
+- Mutation checks (`web-recover.test.ts`): **11 of 11 caught** after one fix (the start anchor of the `#t=` pattern **survived first**; the
+  `#a#t=…` row catches it). Any fragment key, no end anchor, no shape check, `410`/`403`/other mapped wrong, a network error thrown, the token in
+  a query string, any `/recover` status as success, the wrong path.
+- Live, my `vp preview --port 4174`, Playwright with the system Chrome: `/about` (title `∴ about · wordless.one`, nav current, one visible invite
+  box at 1280px and at 390px, no page scroll, no API call); `/recover` form for `uiprobe_oracle` sent a mail through the simulated `send_email`
+  (the binding writes the text to `.wrangler/tmp/email/…/email-text/*.txt`, its path is in the preview log); `/recover#t=<token>` drops the
+  fragment at once and makes no request until the click; the shown key answers `/me` as `uiprobe_oracle`; local and session storage stay
+  empty; the same link again shows "This link doesn't work any more" with the form. curl: `/recover` has `referrer-policy: no-referrer`,
+  `x-robots-tag: noindex` and the CSP; `/about` keeps `strict-origin-when-cross-origin`. No page errors.
+
+### 2026-10-12, Slice 13e session (the smoke test)
+
+Same branch, after 13d.1. **One dependency, approved by the user at the start of the session**: `playwright` 1.64.0 (catalog, root dev
+dependency), the plain library, not `@playwright/test`. No binding, var, secret or migration.
+
+New: `scripts/smoke.ts` (`pnpm smoke [--url <base>]`, `vp run smoke`, `mise run smoke`). Changed: `package.json` (`smoke` script, `playwright`),
+`pnpm-workspace.yaml` (catalog), `pnpm-lock.yaml`, `mise.toml` (`smoke` task), ARCHITECTURE §4 (layout), §14 (the `main` pipeline's smoke
+command), §15 (UI).
+
+- What it checks: `/` has `#boot` with view `feed`, renders every boot post, makes no `/api` request on load; clicking the post's author (the
+  name link) lands on `/@name` with the `h1`, the title, and no reload (a `window` marker survives); `/p/:id` with JavaScript off has the title,
+  `og:title`, `og:description` (the post) and `post` boot data. Any page error fails it.
+- **Decisions worth a look**:
+  - Seeding is decided by the host, not a flag: `localhost`/`127.0.0.1` seed and clean up; anything else only reads, so it can't write to
+    staging or prod by mistake. Read only with an empty feed (a fresh staging) passes the home check and prints that the profile and permalink
+    checks were skipped. Slice 14 may want it to fail instead.
+  - Cleanup: the bot deletes its own post, then `ADMIN_TOKEN` (environment, else `apps/site/.dev.vars`) bans it. There is no admin "delete
+    bot", so each local run leaves one banned `smoke_*` row with no posts. It runs in `finally`, so a failed run cleans up too.
+  - The seed waits (up to 15 s) until `/api/v1/feed` has the post: `latest` is rebuilt after the post's answer.
+  - `channel: "chrome"`: the system Chrome, no browser download (`ubuntu-latest` has Chrome).
+
+Verified (from the repo root):
+
+- `vp check --no-fmt`: clean (102 files). `vp test`: 38 files, **996 passed** (no new `vp test` tests; the smoke test is not in `vp test`).
+  `vp run -r build`: passed; SPA JS **103.01 kB gzip**, CSS **5.37 kB gzip**, Worker 125.40 kB gzip.
+- `pnpm smoke` and `vp run smoke -- --url http://localhost:4174` against my `vp preview --port 4174`: 3 of 3 checks pass; the D1 afterwards
+  holds the `smoke_*` bot banned with `post_count` 0 and no posts.
+- Mutation checks (`$CLAUDE_JOB_DIR/tmp/smoke-mut.py`: apply, `vp run -r build`, restart preview, run the smoke test, restore): **7 of 7
+  caught**: no `#boot` injected, the SPA ignoring boot data (fetches `/api/v1/feed`), the author name not linking to the profile, the author
+  link reloading the page (`reloadDocument`), no `og:description`, `og:title` not rewritten, the profile title not set.
+- Cleanup of every live check of 13d to 13e: `uiprobe_%` and `smoke_%` reactions, posts, recovery tokens and bots deleted with scoped
+  statements, the cron re-run; local D1 shows 0 bots, 0 posts, 0 reactions, 0 recovery tokens, and `/api/v1/feed` and `/top` are empty. My
+  `vp preview` (:4174) and a second `vp dev` (:5180, used to tell the broken :5173 apart) are stopped. The user restarted their `vp dev`
+  (:5173) during the session; it now compiles Tailwind.
+
+### 2026-10-12, terms and privacy (asked by the user after 13e)
+
+Same branch, after the 13e commit. The user asked for terms and a privacy policy that put the blame for bad content on the bots' owners
+and say rule-breakers are banned at once, in standard wording from similar sites, linked from the footer. Researched Moltbook's terms and
+privacy policy (the closest site: an AI-agent network) for the structure: the owner is deemed to have directed every agent act, a restricted-
+content list, suspension "immediately and without notice", as-is disclaimer, liability cap, indemnity, governing law. **The user's answers**
+(2026-10-12): operator named only as "wordless.one" (no person or company), contacts `abuse@wordless.one` and `privacy@wordless.one`,
+Serbian law with Belgrade courts, owners 18+. No dependency, binding or migration.
+
+New: `components/{LegalPage,TermsPage,PrivacyPage}.tsx` (lazy-loaded with `lazyRouteComponent`, so they're their own chunks), `web/useTitle.ts`
+(moved out of `router.tsx` for them). Changed: `router.tsx` (`/terms`, `/privacy`), `pageTitle()` (`terms`, `privacy`), `Shell.tsx` (footer
+`terms` · `privacy`), `BotInvite.tsx` ("By sending a bot you accept the terms and answer for everything it posts. Bots that break them are
+banned at once."), skill.md (owner accepts the terms and must be 18+; an etiquette rule on all-ages content and the instant ban), ARCHITECTURE
+(§1.3, §2.5, §9.1, §9.3, §13, §14 Email Routing, decision 50).
+
+- **Needed before launch (Slice 14)**: Email Routing for `abuse@` and `privacy@wordless.one`, forwarding to the owner. It adds DNS records, so
+  ask first (with the rest of the DNS work). Until then the pages name addresses that bounce.
+- **Not lawyer-reviewed.** The text is standard, but the owner should have it checked, especially the liability cap and the indemnity
+  under Serbian consumer law.
+- The privacy policy claims only what the code does: no cookies or storage, no analytics script (ARCHITECTURE §13 said Cloudflare Web Analytics;
+  it isn't in the page, so §13 now says so), the IP kept only as a keyed hash, keys and tokens as hashes, recovery records gone within about
+  two hours (hourly cron, one-hour window), our code logs no IP, email or key, Cloudflare's request logs may hold IPs. **Deleting a bot on
+  request is manual**: there is no endpoint for it (admin can ban; a full delete is SQL by the operator).
+- Verified: `vp check --no-fmt` clean (106 files); `vp test` **996 passed** (no tests added: static copy, per AGENTS.md); `vp run -r build`
+  passed: main JS **104.31 kB gzip** (103.01 before; the legal text in the main bundle had made it 109.15, hence the lazy chunks: Terms 4.01,
+  Privacy 2.61, shared layout 0.53 kB gzip), CSS 5.44 kB gzip. Live in `vp preview` (stopped after): footer links open both pages by client
+  navigation, titles `terms of service · wordless.one` and `privacy policy · wordless.one`, 16 and 10 sections, cold loads of `/terms` and
+  `/privacy` work under the CSP, no page errors, no page scroll at 390px.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -1613,8 +1749,8 @@ below: a form can't reach `PUT /posts/:id/reaction`, so react is `POST /reaction
 
 ### Slice 13: the web UI (several PRs)
 
-Status: `[-]` 13a, 13b and 13c done (PR #18, merged as `a158676`; Working Notes 2026-10-12, Slice 13a + 13b and Slice 13c sessions). 13d, 13d.1 and
-13e open. React stays and the JS budget is 130 KB gzip (decided 2026-10-11). The look is the **Hash** direction from
+Status: `[x]` 13a, 13b and 13c done (PR #18, merged as `a158676`); 13d, 13d.1 and 13e done on `feat/web-profile` (not pushed; Working Notes
+2026-10-12, Slice 13d, 13d.1 and 13e sessions). React stays and the JS budget is 130 KB gzip (decided 2026-10-11). The look is the **Hash** direction from
 `docs/design/2026-10-11-home-profile-v2/`, built with Tailwind (user's decision, 2026-10-12).
 
 Order and boundaries (the original "13d" was split in two on 2026-10-12: the profile and permalink read public data the Worker already injects; about and
@@ -1634,7 +1770,7 @@ Status: `[x]` Done (PR #18).
 
 #### 13d: the profile and the permalink
 
-Status: `[ ]`
+Status: `[x]` Done on `feat/web-profile` (Working Notes 2026-10-12, Slice 13d session). Not pushed.
 
 - Goal: `/@:username` (`hash-profile.html`) and `/p/:id` in the SPA, reading the boot data 13b already injects, and every author name, avatar and time
   linking to them.
@@ -1666,7 +1802,7 @@ Status: `[ ]`
 
 #### 13d.1: `/about` and `/recover`
 
-Status: `[ ]`
+Status: `[x]` Done on `feat/web-profile` (Working Notes 2026-10-12, Slice 13d.1 session). Not pushed.
 
 - Goal: the two prose pages of §9.1, and `∴ about` in the nav.
 - Why here: SPA-only pages, served by Static Assets (`not_found_handling`), not in `run_worker_first`; independent of 13d but after it so the nav and
@@ -1691,7 +1827,8 @@ Status: `[ ]`
 
 #### 13e: the Playwright smoke test
 
-Status: `[ ]`
+Status: `[x]` Done on `feat/web-profile` (Working Notes 2026-10-12, Slice 13e session). The user chose the plain `playwright` library in one
+script behind a task (2026-10-12). CI wiring is left to Slice 14.
 
 - Goal: one end-to-end check (ARCHITECTURE §15): home shows posts from the boot data without an `/api` request, `/` to a profile by clicking works, and
   `/p/:id` has OG tags. It runs against a local `vp preview` now and against staging in Slice 14's pipeline (§14).
@@ -1738,18 +1875,19 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 13d: the profile (`/@:username`) and the permalink (`/p/:id`)**, in the SPA. The Worker side (boot data, titles, OG tags, `404` pages) is done
-and tested; see "Slice 13" above for the full list.
+**Slice 14: deploy.** Slice 13 is done on `feat/web-profile` (13d, 13d.1, 13e; not pushed). See "Slice 14" above for the open points: GitHub
+secrets (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`), remote migrations, custom domains, **ask before touching DNS** (old records), exact
+hostnames only, and the recovery mail to a non-verified address (Open Question 2).
 
 Start here:
 
-1. `git fetch origin && git switch main && git pull`, then branch (e.g. `feat/web-profile`). `main` is at `a158676` or later.
-2. Read `AGENTS.md`, the Cross-slice rules, ARCHITECTURE §9.1 to §9.3, `docs/design/2026-10-11-home-profile-v2/hash-profile.html` with `hash.css`
-   (`.identity`, `.banner`, `.bio`, `.id-row`, `.stats`), and Working Notes "after PR #18" (dev server, seeding, browser checks, gotchas).
-3. Read `apps/site/src/web/router.tsx`, `api.ts`, `components/Post.tsx` and `src/worker/boot.ts` (`htmlPage()` shows which paths have boot data).
-4. `vp test` should report 974 passing.
-5. Done when `vp check --no-fmt`, `vp test` and `vp run -r build` pass, the JS and CSS gzip sizes are recorded (budgets 130 KB and 8 KB), ARCHITECTURE
-   matches, the plan marks 13d with the exact commands under Working Notes, and `Next Slice` points at 13d.1.
+1. Get `feat/web-profile` reviewed and merged (push it, open the PR; the three commits can be one PR or three). Then `git fetch origin && git
+   switch main && git pull` and branch.
+2. Read `AGENTS.md`, the Cross-slice rules, ARCHITECTURE §14 and §15 (the smoke test), and Working Notes "Slice 13e session".
+3. `vp test` should report 996 passing. `pnpm smoke` against a local `vp preview --port 4174` should pass 3 of 3.
+4. Before launch: Email Routing for `abuse@` and `privacy@wordless.one` (the terms and privacy pages name them; DNS, so ask first).
+5. Wire the smoke test into the `main` pipeline after the staging deploy: `pnpm smoke --url https://staging.wordless.one` (read only). Decide
+   whether an empty staging feed should fail it (today it skips the profile and permalink checks and passes).
 
-Open before 13e: which Playwright runner (ask the user; see 13e). Still deferred or waiting: Slice A (tests in CI, deferred by the user), Slice 1.1 (Rate
-Limiting binding, Open Question 1), Slice 14 (first deploy; also confirms Workers Paid, Open Question 2), `/og.png` and a favicon (need an image).
+Still deferred or waiting: Slice A (tests in CI, deferred by the user), Slice 1.1 (Rate Limiting binding, Open Question 1), Slice 15
+(observability, needs a binding), `/og.png` and a favicon (need an image from the user).

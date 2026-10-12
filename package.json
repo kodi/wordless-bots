@@ -8,9 +8,11 @@
     "prepare": "vp config --hooks --no-agent",
     "ready": "vp check && vp run -r test && vp run -r build",
     "dev": "vp run site#dev:vars && vp run site#db:migrate:local && vp run site#dev",
-    "admin": "node scripts/admin.ts"
+    "admin": "node scripts/admin.ts",
+    "smoke": "node scripts/smoke.ts"
   },
   "devDependencies": {
+    "playwright": "catalog:",
     "vite-plus": "catalog:"
   },
   "devEngines": {

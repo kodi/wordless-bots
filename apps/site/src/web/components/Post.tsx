@@ -1,4 +1,5 @@
 import type { PostJson } from "@wordless/shared";
+import { Link } from "@tanstack/react-router";
 import { exactTime, relativeTime } from "../format.ts";
 import { Avatar } from "./Avatar.tsx";
 import { Reactions } from "./Reactions.tsx";
@@ -9,7 +10,8 @@ const rankLabel = (rank: number) => String(rank).padStart(2, "0");
 /**
  * One post, X-style: the avatar alone in a left gutter; name, art and reactions in the column beside it.
  * `rank` numbers it (the top list): a big numeral in the page margin on wide screens, before the name on
- * narrow ones. The content is only ever a text node (§9.3).
+ * narrow ones. The avatar and the name link to the author's profile, the time to the post's permalink. The
+ * content is only ever a text node (§9.3).
  */
 export function Post({ post, now, rank }: { post: PostJson; now: number; rank?: number }) {
   const { username } = post.author;
@@ -23,7 +25,16 @@ export function Post({ post, now, rank }: { post: PostJson; now: number; rank?: 
           {rankLabel(rank)}
         </span>
       )}
-      <Avatar username={username} className="size-9 sm:size-10" />
+      {/* The name is the same link, so this one is skipped by keyboards and screen readers. */}
+      <Link
+        to="/@{$username}"
+        params={{ username }}
+        className="self-start rounded-full"
+        tabIndex={-1}
+        aria-hidden="true"
+      >
+        <Avatar username={username} className="size-9 sm:size-10" />
+      </Link>
       <div className="min-w-0">
         <header className="flex items-baseline gap-[5px] text-[15px] leading-5">
           {rank !== undefined && (
@@ -31,17 +42,25 @@ export function Post({ post, now, rank }: { post: PostJson; now: number; rank?: 
               {rankLabel(rank)}
             </span>
           )}
-          <span className="font-bold whitespace-nowrap">{username}</span>
+          <Link
+            to="/@{$username}"
+            params={{ username }}
+            className="font-bold whitespace-nowrap hover:underline hover:underline-offset-3"
+          >
+            {username}
+          </Link>
           <span className="text-muted" aria-hidden="true">
             ·
           </span>
-          <time
-            className="whitespace-nowrap text-muted"
-            dateTime={post.created_at}
-            title={exactTime(post.created_at)}
+          <Link
+            to="/p/$id"
+            params={{ id: String(post.id) }}
+            className="whitespace-nowrap text-muted hover:underline hover:underline-offset-3"
           >
-            {relativeTime(post.created_at, now)}
-          </time>
+            <time dateTime={post.created_at} title={exactTime(post.created_at)}>
+              {relativeTime(post.created_at, now)}
+            </time>
+          </Link>
         </header>
         <pre className="panel cut [--cut:12px] mt-2 mb-2.5 overflow-x-auto px-3.5 py-3 font-mono text-lg/[1.4] whitespace-pre [scrollbar-width:thin] sm:px-5 sm:py-4 sm:text-[21px]">
           {post.content}

@@ -1,4 +1,5 @@
 // API keys (docs/ARCHITECTURE.md §6.2). Keys are shown once and never logged; only the hash is stored.
+import { RECOVERY_TOKEN_RE } from "@wordless/shared";
 
 const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const KEY_BYTES = 32;
@@ -6,7 +7,6 @@ const KEY_BYTES = 32;
 const BODY_LENGTH = 43;
 const PREFIX_LENGTH = 10;
 const KEY_RE = /^wl_[0-9A-Za-z]{43}$/;
-const TOKEN_RE = /^[0-9A-Za-z]{43}$/;
 
 export type NewApiKey = { key: string; hash: Uint8Array; prefix: string };
 
@@ -61,7 +61,7 @@ export function hashRecoveryToken(token: string): Promise<Uint8Array> {
 
 /** Cheap shape check, so malformed tokens never reach D1. */
 export function looksLikeRecoveryToken(token: string): boolean {
-  return TOKEN_RE.test(token);
+  return RECOVERY_TOKEN_RE.test(token);
 }
 
 /** Cheap shape check, so malformed tokens never reach D1. */

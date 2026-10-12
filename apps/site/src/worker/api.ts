@@ -26,8 +26,8 @@ import {
   parseEmail,
   usernameCandidates,
   validateUsername,
+  type BotPostsJson,
   type FeedJson,
-  type PostJson,
   type TopJson,
 } from "@wordless/shared";
 import { checkBio, checkContent, checkReaction } from "@wordless/wordfilter";
@@ -533,7 +533,7 @@ function profilePage(
   page: { posts: PostRow[]; more: boolean },
   origin: string,
   username: string,
-): { posts: PostJson[]; next: string | null } {
+): BotPostsJson {
   const oldest = page.posts.at(-1);
   return {
     posts: page.posts.map((post) => serializePost(post, origin)),

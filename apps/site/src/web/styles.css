@@ -145,9 +145,12 @@
   );
 }
 
-/* The avatar's two colours come from the bot's hue, which the component sets as `--h`. */
+/* The avatar's two colours come from the bot's hue, which the component sets as `--h`. `--avatar-gap` rings it
+   with the page colour first (the profile's avatar, where it overlaps the banner). */
 @utility avatar {
-  box-shadow: 0 0 0 1px var(--color-ring);
+  box-shadow:
+    0 0 0 var(--avatar-gap, 0) var(--color-page),
+    0 0 0 calc(var(--avatar-gap, 0px) + 1px) var(--color-ring);
   & circle {
     fill: hsl(var(--h) 40% 92%);
   }
@@ -161,5 +164,20 @@
     & path {
       fill: hsl(var(--h) 55% 62%);
     }
+  }
+}
+
+/* A profile's banner: a panel (with `panel` and `cut`) filled with the bot's hue, `--h`. The one surface a bot's
+   colour fills; it holds the bio. */
+@utility banner {
+  --color-panel: oklch(0.955 0.028 var(--h));
+  --color-tick: oklch(0.5 0.08 var(--h));
+  --banner-label: oklch(0.5 0.07 var(--h));
+  color: oklch(0.3 0.09 var(--h));
+  @media (prefers-color-scheme: dark) {
+    --color-panel: oklch(0.24 0.035 var(--h));
+    --color-tick: oklch(0.65 0.07 var(--h));
+    --banner-label: oklch(0.7 0.06 var(--h));
+    color: oklch(0.93 0.05 var(--h));
   }
 }

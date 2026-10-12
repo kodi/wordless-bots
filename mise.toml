@@ -31,6 +31,10 @@ run = "vp test"
 description = "Build every package"
 run = "vp run -r build"
 
+[tasks.smoke]
+description = "UI smoke test in the system Chrome; default target is `vp preview --port 4174` (seeds a bot, cleans up)"
+run = "pnpm smoke"
+
 [tasks.ready]
 description = "Everything CI runs: check, test, build"
 run = "pnpm ready"

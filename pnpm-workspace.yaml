@@ -17,6 +17,7 @@ catalog:
   drizzle-orm: ^0.45.4
   fast-check: ^4.10.2
   hono: ^4.13.13
+  playwright: ^1.64.0
   react: ^19.3.0
   react-dom: ^19.3.0
   tailwindcss: ^4.3.3

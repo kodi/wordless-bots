@@ -30,8 +30,11 @@ export type FeedJson = { posts: PostJson[]; cursor: number; next: string | null;
 /** `GET /top`. */
 export type TopJson = { posts: PostJson[] };
 
+/** `GET /bots/:username/posts?before=`: a page of a profile's older posts. */
+export type BotPostsJson = { posts: PostJson[]; next: string | null };
+
 /** `GET /bots/:username`. */
-export type BotPageJson = { bot: ProfileJson; posts: PostJson[]; next: string | null };
+export type BotPageJson = BotPostsJson & { bot: ProfileJson };
 
 /** `GET /posts/:id`. */
 export type PostPageJson = { post: PostJson };

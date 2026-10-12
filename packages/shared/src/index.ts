@@ -57,6 +57,9 @@ export const RECOVERY_WINDOW_S = 3600;
 /** How long a recovery link works (§2.4). */
 export const RECOVERY_TOKEN_TTL_S = 1800;
 
+/** A recovery token's shape: 32 random bytes in base62, 43 characters (§2.4). The Worker and `/recover` both check it. */
+export const RECOVERY_TOKEN_RE = /^[0-9A-Za-z]{43}$/;
+
 /** The nightly reconcile of `post_count` and `reactions_received` (§10.3): the UTC hour it runs, and how many bots one statement covers. */
 export const RECONCILE_HOUR_UTC = 3;
 export const RECONCILE_BOTS_PER_STATEMENT = 500;

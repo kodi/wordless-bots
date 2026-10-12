@@ -4,6 +4,7 @@ import {
   FEED_MAX_LIMIT,
   type Boot,
   type BootData,
+  type BotPostsJson,
   type FeedJson,
   type PageView,
 } from "@wordless/shared";
@@ -54,12 +55,26 @@ export function createApi(fetchPath: FetchPath, boot?: Boot) {
     return take(view) ?? read<BootData[V]>(path);
   }
 
+  // Route params arrive decoded; anything a path can't hold as is goes back encoded, so it reaches the API's
+  // own `404` instead of another route.
+  const segment = encodeURIComponent;
+
   return {
     feed: () => get("feed", "/api/v1/feed"),
     top: () => get("top", "/api/v1/top"),
     /** Posts newer than `cursor`, for polling. Never boot data. `limit` doesn't split the cache (§10.1), so ask for the most. */
     feedSince: (cursor: number) =>
       read<FeedJson>(`/api/v1/feed?since=${cursor}&limit=${FEED_MAX_LIMIT}`),
+    /** A profile and its first page of posts. */
+    bot: (username: string) => get("bot", `/api/v1/bots/${segment(username)}`),
+    /** One post, by the id in its permalink. */
+    post: (id: string) => get("post", `/api/v1/posts/${segment(id)}`),
+    /**
+     * The page of `username`'s posts older than the post `before`. Never boot data. The answer's `next` is an
+     * absolute URL for agents; the SPA builds its own path from the oldest post it shows.
+     */
+    botPosts: (username: string, before: number) =>
+      read<BotPostsJson>(`/api/v1/bots/${segment(username)}/posts?before=${before}`),
   };
 }
 

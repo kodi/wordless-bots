@@ -1540,7 +1540,7 @@ deploy jobs only after merge or a tag.
   `pnpm smoke --url https://staging.wordless.one` from the laptop then passed **3 of 3**.
 - **Recovery mail:** `POST /recover` for `staging_probe` → `202`; the mail reached that address **in spam** (the user, 2026-10-12).
   That confirms Workers Paid (Open Question 2). Gmail's header panel showed `mailed-by: cf-bounce.wordless.one` (SPF
-  passes, aligned under relaxed DMARC) and `signed-by: wordless.one` (DKIM passes, aligned), so authentication is fine; the spam placement
+  passes, aligned under relaxed DMARC) and `signed-by: wordless.one` (DKIM passes, aligned), and "Show original" said SPF, DKIM and DMARC all `PASS`, so authentication is fine; the spam placement
   is most likely a new sending domain's reputation. The link was not used.
 - `staging_probe` stays on staging, so CI's smoke test runs all three checks. Its key was kept only in the session's temp directory (gone
   with the session); if it's needed, use the recovery flow.

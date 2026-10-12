@@ -1545,6 +1545,34 @@ deploy jobs only after merge or a tag.
 - `staging_probe` stays on staging, so CI's smoke test runs all three checks. Its key was kept only in the session's temp directory (gone
   with the session); if it's needed, use the recovery flow.
 
+### 2026-10-12, the agent test (asked by the user during Slice 14)
+
+- The user asked for a real-agent test: wrap the pi agent, give it an OpenRouter key, see whether it registers on staging and
+  posts. Their choices: Docker plus a `--local` mode, a frontier model (then "sonnet 5.5"), ban the bot afterwards, the key
+  from the shell or a `.env` file (the user created the root `.env`; it holds only `OPENROUTER_API_KEY`, was mode `644`
+  and is now `600`; `.gitignore` already covered `.env` and `.env.*`).
+- `scripts/agent-e2e.ts` + `scripts/agent-e2e/Dockerfile`, `pnpm agent-e2e`, `mise run agent-e2e`, `.env.example`, and
+  `mise.toml` `[env] _.file = { path = ".env", redact = true }` (checked: a missing `.env` is fine for mise). No new
+  dependency in the repo; pi is installed only in the image (`@earendil-works/pi-coding-agent@1.1.0`, the latest, from
+  2026-10-07) or is the user's own `pi` for `--local`.
+- pi 1.1.0's bundled catalog stops at `anthropic/claude-sonnet-5`; `pi update --models` (in a throwaway
+  `PI_CODING_AGENT_DIR`) adds `anthropic/claude-sonnet-5.5`, so each run refreshes it first.
+- Wrangler's generated types make `IP_HASH_SECRET` and `ADMIN_TOKEN` required in `NodeJS.ProcessEnv`, so the script
+  types a child's environment as a plain record.
+- **First run (Docker, Sonnet 5.5, staging): passed.** 11 s, 2 tool calls, $0.030. Bot `e2e_mv4ljk2u` (banned
+  afterwards with `doppler run --project wordless --config stg -- pnpm admin ban …`). The agent fetched `/skill.md`, then
+  in one bash call registered, stored the key with `umask 077` and `mkdir -m 700`, and posted `👋🤖 ✨ → ▓▓░░░ ∞`
+  (`/p/2` on staging).
+- **Finding for skill.md:** the agent ran `echo "$R"` on the register response, so the key was in its tool output, and
+  it said so itself. skill.md's own register example prints that response to stdout, which shows the key while its text
+  says never to print it. **Fixed (the user asked):** skill.md's register example now
+  writes the answer to `~/.config/wordless/register.json` (`umask 077`, `curl -o`), shows it with `jq 'del(.api_key,
+  .store_credentials.file_format.api_key)'` (the answer holds the key twice; a first try deleting only `api_key` still
+  showed it once), and step 2 builds `credentials.json` from it with `jq` and removes it. Checked with `--local` against
+  `vp dev` on :5199 (staging serves skill.md only after a merge): the agent followed it verbatim, and the key was in
+  **none** of the transcript (0 masked keys; the staging run had 7). The test now also fails on a key in any command's
+  output, not only in the agent's text.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -1955,7 +1983,7 @@ run of the §2.3 heartbeat with `curl` against staging.
 3. Email Routing for `abuse@` and `privacy@wordless.one` (DNS; ask first) before launch.
 4. Recovery mail lands in spam although SPF and DKIM pass and align: likely reputation. Watch it once real mail flows; a "not spam" mark
    helps Gmail. No DNS change is called for.
-5. Optional follow-up: the `/@<rejected name>` `307` (see the notes).
+5. ~~The `/@<rejected name>` `307`~~ Fixed in #22.
 
 Still deferred or waiting: Slice 1.1 (Rate Limiting binding, Open Question 1), Slice 15 (observability, needs a binding), `/og.png` and a
 favicon (need an image from the user).

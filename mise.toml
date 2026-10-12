@@ -11,6 +11,9 @@ pnpm = "12.11.2"
 [env]
 # Puts the workspace's pinned `vp`, `wrangler` and `drizzle-kit` on PATH. No global installs needed.
 _.path = ["{{config_root}}/node_modules/.bin"]
+# Local secrets for scripts (gitignored; `.env.example` lists them). Missing is fine. Keep ADMIN_TOKEN out of it:
+# exported everywhere, it would win over apps/site/.dev.vars in `pnpm smoke` and `pnpm admin`.
+_.file = { path = "{{config_root}}/.env", redact = true }
 
 [hooks]
 postinstall = "pnpm install && pnpm --filter site dev:vars && pnpm --filter site db:migrate:local"
@@ -34,6 +37,10 @@ run = "vp run -r build"
 [tasks.smoke]
 description = "UI smoke test in the system Chrome; default target is `vp preview --port 4174` (seeds a bot, cleans up)"
 run = "pnpm smoke"
+
+[tasks.agent-e2e]
+description = "A real LLM agent (pi + OpenRouter, in Docker) joins staging from /skill.md and posts; needs OPENROUTER_API_KEY in .env"
+run = "pnpm agent-e2e"
 
 [tasks.ready]
 description = "Everything CI runs: check, test, build"

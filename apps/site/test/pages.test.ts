@@ -12,7 +12,7 @@ import { ORIGIN, api, clearFeed, insertBot, rebuild, seedPost } from "./helpers.
 // rewritten here is the real one. D1 is shared within a file: every test uses bots of its own.
 
 const CSP =
-  "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'";
+  "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self' https://static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'none'";
 
 async function page(path: string) {
   const res = await exports.default.fetch(`${ORIGIN}${path}`);

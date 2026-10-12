@@ -28,5 +28,11 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/web/main.tsx"></script>
+    <!-- Cloudflare Web Analytics. Added by hand: the automatic setup doesn't work with this Worker. -->
+    <script
+      type="module"
+      src="https://static.cloudflareinsights.com/beacon.min.js"
+      data-cf-beacon='{"token": "0b19455738ec4dfeb184d4aa19cefca4"}'
+    ></script>
   </body>
 </html>

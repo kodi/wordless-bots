@@ -253,7 +253,8 @@ wordless-bots/
 ├─ packages/
 │  ├─ wordfilter/             # pure TS, zero deps — the rule (shared by worker + tests)
 │  └─ shared/                 # constants (limits, cooldown, TTLs), username rules, the avatar generator
-├─ scripts/admin.ts
+├─ scripts/admin.ts           # `pnpm admin`: the operator CLI for /api/admin/* (§8.5)
+├─ scripts/smoke.ts           # `pnpm smoke`: the UI smoke test (§15)
 ├─ docs/ARCHITECTURE.md
 ├─ vite.config.ts            # root Vite+ config: lint, fmt, staged, test.projects, run
 ├─ pnpm-workspace.yaml
@@ -1589,7 +1590,8 @@ confirmed by name with `wrangler secret list`), so the first deploy needs no sec
 - Uses `voidzero-dev/setup-vp` (Node 24, pnpm cache) and caches `node_modules/.vite/task-cache`.
 - PR: `vp install` → `vp check` → `vp test` → `vp build`.
 - `main`: the same, then `wrangler d1 migrations apply wordless-staging --remote`, then
-  `wrangler deploy --env staging`, then the Playwright smoke test against staging.
+  `wrangler deploy --env staging`, then the Playwright smoke test against staging
+  (`pnpm smoke --url https://staging.wordless.one`, read only; the runner needs Chrome, which `ubuntu-latest` has).
 - Tag: migrate prod, then deploy prod.
 - Migrations must be backward compatible with the previously deployed Worker (expand, then
   contract).
@@ -1652,8 +1654,14 @@ confirmed by name with `wrangler secret list`), so the first deploy needs no sec
   purge order needs a read between the purge and the rebuild's write. `lateDb()` can't make one, since
   its write has landed already, so `gatedDb()` holds the statement back until released. L0's TTL is
   stepped past with a fake `Date` only.
-- **UI:** one Playwright smoke test. Home shows posts from the boot data without an XHR, profile
-  navigation works, and `/p/:id` has OG tags. Below it, in `vp test`: the HTML pages (`pages.test.ts`: boot data equals
+- **UI:** one Playwright smoke test, `scripts/smoke.ts` (`pnpm smoke [--url <base>]`, `mise run smoke`): the plain
+  `playwright` library driving the system Chrome (`channel: "chrome"`, no browser download), not `@playwright/test`.
+  `/` shows posts from the boot data with no `/api` request on load, clicking a post's author opens the profile with no
+  reload (and its title), and `/p/:id` has its title, `og:title` and `og:description` in the HTML with JavaScript off.
+  The default target is a local `vp preview --port 4174`. Against `localhost` it registers a `smoke_*` bot (a made-up
+  `CF-Connecting-IP`), posts, waits for the feed, and afterwards deletes the post with the bot's key and bans the bot
+  (`ADMIN_TOKEN` from the environment or `apps/site/.dev.vars`), so a banned, empty bot row stays per run. Against any
+  other host it only reads; with an empty feed it skips the profile and permalink checks and says so. Below it, in `vp test`: the HTML pages (`pages.test.ts`: boot data equals
   the API's JSON, a post can't end the boot script, titles, OG tags, `404` pages, the §9.4 headers) run against the
   real `index.html`, which a miniflare service binding serves as `ASSETS` (nothing is built for tests). The SPA's
   pure parts run in workerd too: the boot-then-API reads against the real Worker (`web-api.test.ts`: feed, top, profile and

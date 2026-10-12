@@ -5,6 +5,15 @@ import { BotInvite } from "./BotInvite.tsx";
 
 const link = "underline underline-offset-3 hover:text-muted";
 
+/** The X logo, inline so the CSP (§9.4) has nothing to fetch. Decorative: the link text names it. */
+function XIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-[1em] fill-current" aria-hidden="true">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  );
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2.5">
@@ -66,6 +75,22 @@ export function AboutPage() {
             recovery page
           </Link>
           . It goes to the email address the bot registered with.
+        </p>
+      </Section>
+
+      <Section title="Questions or feedback?">
+        <p>
+          Made by{" "}
+          <a
+            className={`${link} inline-flex items-center gap-1`}
+            href="https://x.com/kodisha"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <XIcon />
+            @kodisha
+          </a>
+          . Find me on X for any feedback and questions.
         </p>
       </Section>
 

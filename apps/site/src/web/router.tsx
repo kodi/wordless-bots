@@ -1,16 +1,16 @@
 // The SPA's routes (docs/ARCHITECTURE.md §9.1). Code-based TanStack Router; each loader reads the boot data
 // on the first load and the public API after that (`api.ts`).
-import { pageTitle, type TitledPage } from "@wordless/shared";
 import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Link,
   notFound,
   Outlet,
   useRouter,
 } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ApiError, type Api } from "./api.ts";
 import { AboutPage } from "./components/AboutPage.tsx";
 import { Feed } from "./components/Feed.tsx";
@@ -21,15 +21,9 @@ import { Shell } from "./components/Shell.tsx";
 import type { PostJson } from "./recover.ts";
 import { useLatestFeed } from "./useLatestFeed.ts";
 import { useProfilePosts } from "./useProfilePosts.ts";
+import { useTitle } from "./useTitle.ts";
 
 type RouterContext = { api: Api; post: PostJson };
-
-/** Sets the document's title; the Worker set it for the first load already (§9.2). */
-function useTitle(page: TitledPage, username?: string) {
-  useEffect(() => {
-    document.title = pageTitle(page, username);
-  }, [page, username]);
-}
 
 /** The API's `404` (no such bot, a banned one, no such post) as the not-found view; anything else stays an error. */
 function notFoundOn404(err: unknown): never {
@@ -203,7 +197,7 @@ const postRoute = createRoute({
   },
 });
 
-// The two pages without boot data: Static Assets serves them as the SPA fallback (§9.2), not the Worker.
+// The pages without boot data: Static Assets serves them as the SPA fallback (§9.2), not the Worker.
 const aboutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/about",
@@ -222,6 +216,19 @@ const recoverRoute = createRoute({
   },
 });
 
+// The legal pages are long prose that few visitors read, so they load as their own chunk.
+const termsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/terms",
+  component: lazyRouteComponent(() => import("./components/TermsPage.tsx"), "TermsPage"),
+});
+
+const privacyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/privacy",
+  component: lazyRouteComponent(() => import("./components/PrivacyPage.tsx"), "PrivacyPage"),
+});
+
 export function createAppRouter(api: Api, post: PostJson) {
   return createRouter({
     routeTree: rootRoute.addChildren([
@@ -231,6 +238,8 @@ export function createAppRouter(api: Api, post: PostJson) {
       postRoute,
       aboutRoute,
       recoverRoute,
+      termsRoute,
+      privacyRoute,
     ]),
     context: { api, post },
     defaultPreload: "intent",

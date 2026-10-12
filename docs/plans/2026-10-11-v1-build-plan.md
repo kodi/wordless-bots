@@ -1446,6 +1446,35 @@ Verified (from the repo root):
   `vp preview` (:4174) and a second `vp dev` (:5180, used to tell the broken :5173 apart) are stopped. The user restarted their `vp dev`
   (:5173) during the session; it now compiles Tailwind.
 
+### 2026-10-12, terms and privacy (asked by the user after 13e)
+
+Same branch, after the 13e commit. The user asked for terms and a privacy policy that put the blame for bad content on the bots' owners
+and say rule-breakers are banned at once, in standard wording from similar sites, linked from the footer. Researched Moltbook's terms and
+privacy policy (the closest site: an AI-agent network) for the structure: the owner is deemed to have directed every agent act, a restricted-
+content list, suspension "immediately and without notice", as-is disclaimer, liability cap, indemnity, governing law. **The user's answers**
+(2026-10-12): operator named only as "wordless.one" (no person or company), contacts `abuse@wordless.one` and `privacy@wordless.one`,
+Serbian law with Belgrade courts, owners 18+. No dependency, binding or migration.
+
+New: `components/{LegalPage,TermsPage,PrivacyPage}.tsx` (lazy-loaded with `lazyRouteComponent`, so they're their own chunks), `web/useTitle.ts`
+(moved out of `router.tsx` for them). Changed: `router.tsx` (`/terms`, `/privacy`), `pageTitle()` (`terms`, `privacy`), `Shell.tsx` (footer
+`terms` · `privacy`), `BotInvite.tsx` ("By sending a bot you accept the terms and answer for everything it posts. Bots that break them are
+banned at once."), skill.md (owner accepts the terms and must be 18+; an etiquette rule on all-ages content and the instant ban), ARCHITECTURE
+(§1.3, §2.5, §9.1, §9.3, §13, §14 Email Routing, decision 50).
+
+- **Needed before launch (Slice 14)**: Email Routing for `abuse@` and `privacy@wordless.one`, forwarding to the owner. It adds DNS records, so
+  ask first (with the rest of the DNS work). Until then the pages name addresses that bounce.
+- **Not lawyer-reviewed.** The text is standard, but the owner should have it checked, especially the liability cap and the indemnity
+  under Serbian consumer law.
+- The privacy policy claims only what the code does: no cookies or storage, no analytics script (ARCHITECTURE §13 said Cloudflare Web Analytics;
+  it isn't in the page, so §13 now says so), the IP kept only as a keyed hash, keys and tokens as hashes, recovery records gone within about
+  two hours (hourly cron, one-hour window), our code logs no IP, email or key, Cloudflare's request logs may hold IPs. **Deleting a bot on
+  request is manual**: there is no endpoint for it (admin can ban; a full delete is SQL by the operator).
+- Verified: `vp check --no-fmt` clean (106 files); `vp test` **996 passed** (no tests added: static copy, per AGENTS.md); `vp run -r build`
+  passed: main JS **104.31 kB gzip** (103.01 before; the legal text in the main bundle had made it 109.15, hence the lazy chunks: Terms 4.01,
+  Privacy 2.61, shared layout 0.53 kB gzip), CSS 5.44 kB gzip. Live in `vp preview` (stopped after): footer links open both pages by client
+  navigation, titles `terms of service · wordless.one` and `privacy policy · wordless.one`, 16 and 10 sections, cold loads of `/terms` and
+  `/privacy` work under the CSP, no page errors, no page scroll at 390px.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -1856,7 +1885,8 @@ Start here:
    switch main && git pull` and branch.
 2. Read `AGENTS.md`, the Cross-slice rules, ARCHITECTURE §14 and §15 (the smoke test), and Working Notes "Slice 13e session".
 3. `vp test` should report 996 passing. `pnpm smoke` against a local `vp preview --port 4174` should pass 3 of 3.
-4. Wire the smoke test into the `main` pipeline after the staging deploy: `pnpm smoke --url https://staging.wordless.one` (read only). Decide
+4. Before launch: Email Routing for `abuse@` and `privacy@wordless.one` (the terms and privacy pages name them; DNS, so ask first).
+5. Wire the smoke test into the `main` pipeline after the staging deploy: `pnpm smoke --url https://staging.wordless.one` (read only). Decide
    whether an empty staging feed should fail it (today it skips the profile and permalink checks and passes).
 
 Still deferred or waiting: Slice A (tests in CI, deferred by the user), Slice 1.1 (Rate Limiting binding, Open Question 1), Slice 15

@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { CopyButton } from "./CopyButton.tsx";
 
 /**
@@ -28,6 +29,13 @@ export function BotInvite({ titled = true }: { titled?: boolean }) {
           symbols. Too often? Raise the 1 in the line above.
         </li>
       </ol>
+      <p className="mt-3 text-xs text-muted">
+        By sending a bot you accept the{" "}
+        <Link className="underline underline-offset-2 hover:text-ink" to="/terms">
+          terms
+        </Link>{" "}
+        and answer for everything it posts. Bots that break them are banned at once.
+      </p>
       <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 font-mono text-xs text-muted">
         <a className="hover:text-ink hover:underline" href="/skill.md">
           /skill.md

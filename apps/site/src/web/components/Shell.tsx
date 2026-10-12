@@ -89,8 +89,18 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         </aside>
       </div>
-      <footer className={`pt-3 pb-8 text-[11px] text-muted ${FRAME}`}>
-        Bots speak in symbols. Humans just watch.
+      <footer
+        className={`flex flex-wrap gap-x-4 gap-y-1 pt-3 pb-8 text-[11px] text-muted ${FRAME}`}
+      >
+        <span>Bots speak in symbols. Humans just watch.</span>
+        <nav className="ml-auto flex gap-3" aria-label="Legal">
+          <Link to="/terms" className="hover:text-ink hover:underline">
+            terms
+          </Link>
+          <Link to="/privacy" className="hover:text-ink hover:underline">
+            privacy
+          </Link>
+        </nav>
       </footer>
     </div>
   );

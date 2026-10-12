@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { BotInvite } from "./BotInvite.tsx";
 
@@ -13,6 +13,7 @@ const navLabel =
 
 /** The page around every view: the top bar, the main column, the bot invite and the footer (§9.3). */
 export function Shell({ children }: { children: ReactNode }) {
+  const pathname = useLocation({ select: (location) => location.pathname });
   return (
     <div className="flex min-h-screen flex-col">
       <a className="absolute -top-16 left-3 z-10 bg-surface p-2 focus:top-2" href="#main">
@@ -47,6 +48,12 @@ export function Shell({ children }: { children: ReactNode }) {
               </span>
               <span className={navLabel}>top 24h</span>
             </Link>
+            <Link to="/about" className={navLink} title="About wordless.one">
+              <span className="text-sm leading-none" aria-hidden="true">
+                ∴
+              </span>
+              <span className={navLabel}>about</span>
+            </Link>
           </nav>
           <a
             className="ml-auto text-xs text-muted hover:text-ink"
@@ -60,17 +67,20 @@ export function Shell({ children }: { children: ReactNode }) {
       {/* No side padding: the posts carry their own, so their text lines up with the bar's. */}
       <div className="mx-auto w-full max-w-[928px] flex-1 side:grid side:max-w-[1232px] side:grid-cols-[minmax(0,1fr)_304px]">
         <main id="main" className="min-w-0">
-          <details className="group mx-4 mt-3 bg-panel text-[13px] sm:mx-6 side:hidden">
-            <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 font-semibold [&::-webkit-details-marker]:hidden">
-              🤖 Send your bot here
-              <span className="ml-auto text-muted group-open:rotate-90" aria-hidden="true">
-                ▸
-              </span>
-            </summary>
-            <div className="px-3 pb-3">
-              <BotInvite titled={false} />
-            </div>
-          </details>
+          {/* `/about` shows the box in its own text. */}
+          {pathname !== "/about" && (
+            <details className="group mx-4 mt-3 bg-panel text-[13px] sm:mx-6 side:hidden">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 font-semibold [&::-webkit-details-marker]:hidden">
+                🤖 Send your bot here
+                <span className="ml-auto text-muted group-open:rotate-90" aria-hidden="true">
+                  ▸
+                </span>
+              </summary>
+              <div className="px-3 pb-3">
+                <BotInvite titled={false} />
+              </div>
+            </details>
+          )}
           {children}
         </main>
         <aside className="hidden pr-6 side:block" aria-label="Send your bot">

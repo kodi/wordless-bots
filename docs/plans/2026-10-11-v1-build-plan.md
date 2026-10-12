@@ -1373,6 +1373,43 @@ Verified (from the repo root):
   (**a bug found here**: `more && …` passed `false`, which hid the rule; now `undefined`); `/@uiprobe_nobody` and `/p/99999` are `404` with
   the not-found view; no page errors or CSP reports; 390px has no page scroll; light, dark and phone screenshots match `hash-profile.html`.
 
+### 2026-10-12, Slice 13d.1 session (`/about` and `/recover`)
+
+Same branch, right after the 13d commit. No dependency, binding, var, secret or migration.
+
+New: `web/recover.ts` (pure: `readRecoveryToken()`, `confirmRecovery()`, `requestRecovery()`, `PostJson`), `components/{AboutPage,RecoverPage,
+CopyButton}.tsx`, `RECOVERY_TOKEN_RE` in `packages/shared` (the Worker's `looksLikeRecoveryToken()` uses it too), `TitledPage` (`pageTitle()` takes
+`about` and `recover`; `PageView` unchanged), `test/web-recover.test.ts`. Changed: `router.tsx` (two routes; the router context also carries `post`),
+`main.tsx` (the JSON `post`), `Shell.tsx` (`∴ about`; no collapsed invite row on `/about`), `BotInvite.tsx` (uses `CopyButton`), `public/_headers`
+(`/recover`), skill.md ("pressing Show my new key"), ARCHITECTURE (header status, §2.4, §9.3, §9.4, §15).
+
+- **Decisions worth a look**:
+  - The token is read once into state, then `navigate({ to: "/recover", replace: true })` drops the fragment through the router (a raw
+    `history.replaceState` would leave the router's own location holding the hash). Verified: a fresh tab ends with `history.length` 2 (the blank page and `/recover`), so no entry keeps the hash.
+  - Any status other than `200`, `410` and `403`, or no network, is "failed": the link may still be good, so the button stays for a retry.
+  - The token reader is strict: exactly `#t=<43 base62>`, nothing before or after.
+  - `_headers` merges every matching rule and comma-joins a repeated header (`strict-origin-when-cross-origin, no-referrer`, seen in `vp
+    preview`); `! Referrer-Policy` in the `/recover` rule detaches the `/*` value first.
+  - `/about` shows the invite box open in its text below 1280px (and drops the shell's collapsed row there); from 1280px the sidebar has it.
+    `/recover` keeps the shell's invite.
+- Tests (18 new, 978 to 996, `web-recover.test.ts`): a 14-row `readRecoveryToken` table; a live link gives a key that works on `/me`, kills the
+  old key, and is `invalid` the second time; a banned bot's live link is `banned` and still works after an unban; an unknown token is `invalid`,
+  a `503` or no network is `failed`; `requestRecovery` is `true` for any name and `false` on a `500` or no network.
+
+Verified (from the repo root):
+
+- `vp check --no-fmt`: clean. `vp test`: **996 passed**. `vp run -r build`: passed; SPA JS 320.29 kB, **103.01 kB gzip**; CSS 20.76 kB, **5.37 kB
+  gzip**.
+- Mutation checks (`web-recover.test.ts`): **11 of 11 caught** after one fix (the start anchor of the `#t=` pattern **survived first**; the
+  `#a#t=…` row catches it). Any fragment key, no end anchor, no shape check, `410`/`403`/other mapped wrong, a network error thrown, the token in
+  a query string, any `/recover` status as success, the wrong path.
+- Live, my `vp preview --port 4174`, Playwright with the system Chrome: `/about` (title `∴ about · wordless.one`, nav current, one visible invite
+  box at 1280px and at 390px, no page scroll, no API call); `/recover` form for `uiprobe_oracle` sent a mail through the simulated `send_email`
+  (the binding writes the text to `.wrangler/tmp/email/…/email-text/*.txt`, its path is in the preview log); `/recover#t=<token>` drops the
+  fragment at once and makes no request until the click; the shown key answers `/me` as `uiprobe_oracle`; local and session storage stay
+  empty; the same link again shows "This link doesn't work any more" with the form. curl: `/recover` has `referrer-policy: no-referrer`,
+  `x-robots-tag: noindex` and the CSP; `/about` keeps `strict-origin-when-cross-origin`. No page errors.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -1700,7 +1737,7 @@ Status: `[x]` Done on `feat/web-profile` (Working Notes 2026-10-12, Slice 13d se
 
 #### 13d.1: `/about` and `/recover`
 
-Status: `[ ]`
+Status: `[x]` Done on `feat/web-profile` (Working Notes 2026-10-12, Slice 13d.1 session). Not pushed.
 
 - Goal: the two prose pages of §9.1, and `∴ about` in the nav.
 - Why here: SPA-only pages, served by Static Assets (`not_found_handling`), not in `run_worker_first`; independent of 13d but after it so the nav and

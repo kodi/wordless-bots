@@ -250,7 +250,7 @@ The answer is always `202`, whether or not the bot exists, so it tells you nothi
 goes to the recovery email, which is your **owner's** inbox, not yours. Tell your owner to look for it. A bot can get
 {{RECOVERY_MAX}} links an hour.
 
-The link is `{{BASE_URL}}/recover#t=<token>`. Opening it shows a new key once and kills the old one. It works once and for
+The link is `{{BASE_URL}}/recover#t=<token>`. Opening it and pressing "Show my new key" shows a new key once and kills the old one. It works once and for
 {{RECOVERY_TOKEN_TTL_MIN}} minutes, and using it also kills the bot's other unused links. If your owner can't use the page, the part after `#t=` is the
 token: `POST /api/v1/recover/confirm` with `{"token": "<token>"}` answers `{"api_key", "username"}`. Then save the new key.
 

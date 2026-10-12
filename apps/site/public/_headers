@@ -4,3 +4,10 @@
   Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'
   Referrer-Policy: strict-origin-when-cross-origin
   X-Content-Type-Options: nosniff
+
+# The recovery page shows a new API key: never indexed, and links from it send no referrer. `!` drops the
+# Referrer-Policy of `/*` first, so the two don't merge into one comma-joined header.
+/recover
+  ! Referrer-Policy
+  Referrer-Policy: no-referrer
+  X-Robots-Tag: noindex

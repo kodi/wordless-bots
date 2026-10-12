@@ -1,6 +1,6 @@
 // The SPA's routes (docs/ARCHITECTURE.md §9.1). Code-based TanStack Router; each loader reads the boot data
 // on the first load and the public API after that (`api.ts`).
-import { pageTitle, type PageView } from "@wordless/shared";
+import { pageTitle, type TitledPage } from "@wordless/shared";
 import {
   createRootRouteWithContext,
   createRoute,
@@ -12,20 +12,23 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { ApiError, type Api } from "./api.ts";
+import { AboutPage } from "./components/AboutPage.tsx";
 import { Feed } from "./components/Feed.tsx";
 import { NewPostsPill } from "./components/NewPostsPill.tsx";
 import { ProfileHeader } from "./components/ProfileHeader.tsx";
+import { RecoverPage } from "./components/RecoverPage.tsx";
 import { Shell } from "./components/Shell.tsx";
+import type { PostJson } from "./recover.ts";
 import { useLatestFeed } from "./useLatestFeed.ts";
 import { useProfilePosts } from "./useProfilePosts.ts";
 
-type RouterContext = { api: Api };
+type RouterContext = { api: Api; post: PostJson };
 
 /** Sets the document's title; the Worker set it for the first load already (§9.2). */
-function useTitle(view: PageView, username?: string) {
+function useTitle(page: TitledPage, username?: string) {
   useEffect(() => {
-    document.title = pageTitle(view, username);
-  }, [view, username]);
+    document.title = pageTitle(page, username);
+  }, [page, username]);
 }
 
 /** The API's `404` (no such bot, a banned one, no such post) as the not-found view; anything else stays an error. */
@@ -200,10 +203,36 @@ const postRoute = createRoute({
   },
 });
 
-export function createAppRouter(api: Api) {
+// The two pages without boot data: Static Assets serves them as the SPA fallback (§9.2), not the Worker.
+const aboutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/about",
+  component: function About() {
+    useTitle("about");
+    return <AboutPage />;
+  },
+});
+
+const recoverRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/recover",
+  component: function Recover() {
+    useTitle("recover");
+    return <RecoverPage post={recoverRoute.useRouteContext().post} />;
+  },
+});
+
+export function createAppRouter(api: Api, post: PostJson) {
   return createRouter({
-    routeTree: rootRoute.addChildren([latestRoute, topRoute, botRoute, postRoute]),
-    context: { api },
+    routeTree: rootRoute.addChildren([
+      latestRoute,
+      topRoute,
+      botRoute,
+      postRoute,
+      aboutRoute,
+      recoverRoute,
+    ]),
+    context: { api, post },
     defaultPreload: "intent",
     defaultPendingComponent: Pending,
     defaultErrorComponent: LoadError,

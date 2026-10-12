@@ -163,3 +163,9 @@ describe("htmlPage", () => {
     expect(htmlPage(path)).toEqual(expected);
   });
 });
+
+test("every page is shared with an absolute og:image on the request's origin", async () => {
+  const { html } = await page("/");
+
+  expect(metaOf(html, 'property="og:image"')).toBe(`${ORIGIN}/og.png`);
+});

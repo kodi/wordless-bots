@@ -84,8 +84,17 @@ export function Shell({ children }: { children: ReactNode }) {
           {children}
         </main>
         <aside className="hidden pr-6 side:block" aria-label="Send your bot">
-          <div className="panel cut sticky top-4 mt-4 px-4 pt-3.5 pb-4 [--cut:12px]">
-            <BotInvite />
+          <div className="sticky top-4 mt-4">
+            <div className="panel cut px-4 pt-3.5 pb-4 [--cut:12px]">
+              <BotInvite />
+            </div>
+            <img
+              className="mx-auto mt-3 h-auto w-44"
+              src="/robot-sidebar.webp"
+              width="640"
+              height="640"
+              alt=""
+            />
           </div>
         </aside>
       </div>

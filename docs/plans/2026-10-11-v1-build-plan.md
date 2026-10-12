@@ -84,8 +84,10 @@ Merged on `main`:
 - #18 Slices 13a to 13c, the web UI (squash-merged as `a158676`): Tailwind v4, the Hash shell, `/` and `/top`, `boot.ts` (boot data, titles, OG tags,
   §9.4 headers), `public/_headers`, polling and the `↑ N` pill, the "Send your bot here" box, the JSON types and `pageTitle()` in `packages/shared`.
 
-Open: branch `feat/web-profile` (not pushed): `ea05399` 13d (profile, permalink), `952dea3` 13d.1 (`/about`, `/recover`) and the 13e commit (the
-smoke test), on top of `main` at `090dc96`. Push it and open the PR (or PRs) before Slice 14; see Next Slice.
+- #19 Slices 13d, 13d.1, 13e and the terms and privacy pages (squash-merged as `f611b24`): profile, permalink, `/about`, `/recover`,
+  `scripts/smoke.ts`, `/terms`, `/privacy`.
+
+Open: branch `feat/deploy` (Slice 14, not pushed): the `CI` workflow with the deploy jobs, Custom Domains in `wrangler.jsonc`. See Next Slice.
 
 Worker layout (`apps/site/src/worker/`): `index.ts` (Hono app, error handlers; also `GET /act`),
 `api.ts` (all `/api/v1` routes so far, `putReaction()` and `sendRecovery()`), `act.ts` (`actPage()`, `resultPage()`, `escapeHtml()`), `form.ts` (`formFallback`, `prefersHtml()`), `admin.ts` (the `/api/admin` routes), `auth.ts` (`requireBot`, `requireAdmin`), `avatar.ts` (`avatarResponse()`, `GET /a/:file`), `auth.ts`, `http.ts`, `keys.ts`, `credentials.ts`,
@@ -124,7 +126,7 @@ Baseline: `vp test` runs 996 tests on `feat/web-profile` (978 after 13d); 974 (5
 `fd7e3ce`; 757 (202 worker) at `ea90eb6`. Before Slice 6 it was
 737 (`fbb6045`), before Slice 5 702 (`4de2bab`), and before Slice 4.1 (`012c78a`) 687.
 
-Not built yet: burst rate limits (the register hourly limit exists), the smoke test in CI (Slice 14 / Slice A), Analytics Engine events,
+Not built yet: burst rate limits (the register hourly limit exists), Analytics Engine events,
 `/og.png` and a favicon.
 
 Infra reality:
@@ -141,10 +143,11 @@ Infra reality:
 - `wrangler.jsonc` has `DB`, `ASSETS`, `EMAIL` (`send_email`, since Slice 9, approved by the user on 2026-10-11, top level and `env.staging`), the `secrets.required` list (`IP_HASH_SECRET` and, since Slice 11, `ADMIN_TOKEN`; both are set as Cloudflare secrets on both Workers), observability and (since Slice 6, approved by
   the user on 2026-10-11) `triggers.crons: ["* * * * *"]` at the top level and in `env.staging`. No `ratelimits` or
   `analytics_engine_datasets`.
-- CI runs only `vp check`. **Tests and build are not in CI** (§14 says the PR pipeline should be
-  check → test → build).
-- The prod and staging D1 ids in `wrangler.jsonc` are filled in. Whether the databases hold the
-  migrations is unverified.
+- CI on `main` runs only `vp check`. On `feat/deploy`, `ci.yml` runs check, test and build on every run and deploys (Slice 14).
+- GitHub holds `CLOUDFLARE_API_TOKEN` (account API token `github-wordless`) and `CLOUDFLARE_ACCOUNT_ID` as repo secrets (set by the user
+  2026-10-12, checked by a throwaway workflow; see Working Notes "Slice 14 session").
+- The prod and staging D1 ids in `wrangler.jsonc` are filled in. **Staging holds every migration on `main`** (`wrangler d1 migrations
+  list --remote` from CI: "No migrations to apply", 2026-10-12). Prod is unverified.
 - Email Sending is enabled for `wordless.one` (its Email Sending domain tag is `132abfb887f74b398992af69fad0eaed`, from
   `pnpm exec wrangler email sending list`; it is not an account id), and
   its five DNS records (3 MX, SPF, DKIM, `_dmarc`) are in the zone and resolve (checked with `dig` against
@@ -1475,6 +1478,43 @@ banned at once."), skill.md (owner accepts the terms and must be 18+; an etiquet
   navigation, titles `terms of service · wordless.one` and `privacy policy · wordless.one`, 16 and 10 sections, cold loads of `/terms` and
   `/privacy` work under the CSP, no page errors, no page scroll at 390px.
 
+### 2026-10-12, Slice 14 session (the deploy pipeline)
+
+- PR #19 (`feat/web-profile`) was already squash-merged as `f611b24` when this session started; its tree equals the branch. Slice 14 is on
+  `feat/deploy` from that `main`.
+- **GitHub secrets.** The user set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repo secrets (no environment-level ones). Checked
+  with a throwaway workflow on branch `ci/cf-check` (pushed by the user; Claude Code's auto-mode classifier refuses pushes of a workflow
+  that runs with secrets, and refused one that read prod D1), since deleted on both sides:
+  - `wrangler whoami`: an account API token on the owner's account; the masked id matched the secret.
+  - `wrangler d1 migrations list DB --remote --env staging` failed first with `7403` ("The given account is not valid or is not authorized
+    to access this service"): **D1 Write had been added to the zone-scoped policy** (`wordless.one`), where it grants nothing. Moved to the
+    account-wide policy, the re-run passed: "No migrations to apply!". Staging holds `0000_init`; prod wasn't read.
+  - The token (named `github-wordless`): account-wide policy from the "Edit Cloudflare Workers" template plus D1 Write; Workers Routes
+    Write on all zones (the user may narrow it to `wordless.one`). Not known: whether it has Zone Read, which a Custom Domain may need. If
+    the first deploy fails on the domain, add Zone Read for `wordless.one`.
+- **User decisions (2026-10-12):** the user deletes the old DNS records themselves before the first deploy (apex `A`, wildcard, `www`
+  `CNAME`; the email records stay); the pipeline runs `vp test` before deploying (this does Slice A).
+- **`ci.yml`** replaces `code-quality.yml` (`CodeQuality` → `CI`; `main` had no branch protection, so no required check broke). Jobs:
+  `check` (check, test, build; every trigger), `staging` (push to `main`), `production` (`v*` tag or a manual run on `main`). Deploy jobs
+  only: the secrets, a GitHub environment (`staging`, `production`; GitHub creates them on first use) and a non-cancelling concurrency group.
+  The workflow's concurrency cancels only PR runs.
+- **Wrangler facts checked locally** (`wrangler` 4.149.0): `CLOUDFLARE_ENV=staging vp build` writes `dist/wordless/wrangler.json` (name
+  `wordless-staging`, `wordless-staging` D1, `migrations_dir` rewritten to `../../migrations`) and `.wrangler/deploy/config.json`; `wrangler
+  deploy --dry-run` then says "Using redirected Wrangler configuration" and lists the staging D1. A plain build gives `wordless` and
+  `wordless-prod`. `wrangler d1 migrations list DB --local --env staging` **still works** after a build (no `--env` conflict). Both builds
+  carry the new `routes` and `workers_dev: false`, `preview_urls: false`.
+- `wrangler.jsonc`: top-level `routes` `wordless.one` and `env.staging` `staging.wordless.one`, both `custom_domain: true`; `workers_dev`
+  and `preview_urls` off (inherited by staging). Decision 51.
+- The build steps call `pnpm --filter site build`, not `vp run site#build`, so no task-runner cache sits between `CLOUDFLARE_ENV` and the
+  build (not checked whether `vp run` would cache it; this avoids the question).
+- **Smoke test on an empty feed: passes** (skips the profile and permalink checks, as today). Staging starts empty and the CI run can't
+  seed it (read only off localhost), so failing would fail every first deploy.
+- After `wrangler deploy`, the job polls `/` for up to 5 minutes before the smoke test: a new Custom Domain needs its certificate.
+
+Verified (repo root): `vp check --no-fmt` clean (106 files); `vp fmt --check apps packages docs/ARCHITECTURE.md docs/plans .github` clean;
+`vp test` **996 passed** (38 files); `vp run -r build` passed. **The workflow itself has not run**: the `check` job runs on the PR, the
+deploy jobs only after merge or a tag.
+
 ## Open Questions
 
 Ask the user rather than assuming:
@@ -1514,7 +1554,8 @@ Verification: see Working Notes 2026-10-11.
 
 ### Slice A (later): run tests and build in CI
 
-Status: `[ ]` Deferred by the user on 2026-10-11 ("test in ci later"). Don't start it unasked.
+Status: `[x]` Folded into Slice 14 (the user chose "test before deploy", 2026-10-12): `ci.yml` job `check` runs `vp test` and
+`vp run -r build`. Deferred by the user on 2026-10-11 ("test in ci later") until then.
 
 - Goal: the 601 tests and the build gate PRs, as §14 describes.
 - Why here: it's independent and tiny, and it would protect every later slice. The user chose to
@@ -1847,7 +1888,8 @@ exists.
 
 ### Slice 14: deploy
 
-Status: `[ ]`
+Status: `[-]` The pipeline and config are on `feat/deploy` (not pushed, not run). Still to do: the user deletes the old DNS records, the
+first staging and prod deploys, `www`, Email Routing, and the recovery-mail check. See Working Notes "Slice 14 session".
 
 - Staging deploy on push to `main`, prod on tag, remote migrations, custom
   domains and DNS (§14). The secrets step is done (`IP_HASH_SECRET` and `ADMIN_TOKEN` are on both Workers). The first staging deploy also
@@ -1875,19 +1917,18 @@ run of the §2.3 heartbeat with `curl` against staging.
 
 ## Next Slice
 
-**Slice 14: deploy.** Slice 13 is done on `feat/web-profile` (13d, 13d.1, 13e; not pushed). See "Slice 14" above for the open points: GitHub
-secrets (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`), remote migrations, custom domains, **ask before touching DNS** (old records), exact
-hostnames only, and the recovery mail to a non-verified address (Open Question 2).
+**Slice 14: deploy, the first run.** The pipeline is on `feat/deploy` (Working Notes "Slice 14 session"). What's left needs the user or a
+live run:
 
-Start here:
+1. The user deletes the old DNS records (apex `A` to `46.101.96.143`, wildcard `*.wordless.one`, `www` `CNAME` to GoDaddy). Keep the 3 MX,
+   SPF, DKIM and `_dmarc`. Check the zone afterwards with `dig` (the apex and `staging.` should not resolve until the deploy).
+2. Push `feat/deploy` and open the PR; its `check` job is the first CI run of `vp test` on `ubuntu-latest`. Merging deploys staging.
+3. Watch the `staging` job. If `wrangler deploy` fails on the Custom Domain, the token probably needs Zone Read (or DNS Edit) on
+   `wordless.one`; the user adds it, then re-run the job.
+4. On staging: request a recovery mail to a **non-verified** address (Open Question 2: it confirms Workers Paid), and run the §2.3
+   heartbeat with `curl`.
+5. Prod: push a `v0.1.0` tag (ask the user first). Then `www`: a proxied placeholder record and a Redirect Rule to the apex (dashboard;
+   ask first). Email Routing for `abuse@` and `privacy@wordless.one` (DNS; ask first) before launch.
 
-1. Get `feat/web-profile` reviewed and merged (push it, open the PR; the three commits can be one PR or three). Then `git fetch origin && git
-   switch main && git pull` and branch.
-2. Read `AGENTS.md`, the Cross-slice rules, ARCHITECTURE §14 and §15 (the smoke test), and Working Notes "Slice 13e session".
-3. `vp test` should report 996 passing. `pnpm smoke` against a local `vp preview --port 4174` should pass 3 of 3.
-4. Before launch: Email Routing for `abuse@` and `privacy@wordless.one` (the terms and privacy pages name them; DNS, so ask first).
-5. Wire the smoke test into the `main` pipeline after the staging deploy: `pnpm smoke --url https://staging.wordless.one` (read only). Decide
-   whether an empty staging feed should fail it (today it skips the profile and permalink checks and passes).
-
-Still deferred or waiting: Slice A (tests in CI, deferred by the user), Slice 1.1 (Rate Limiting binding, Open Question 1), Slice 15
-(observability, needs a binding), `/og.png` and a favicon (need an image from the user).
+Still deferred or waiting: Slice 1.1 (Rate Limiting binding, Open Question 1), Slice 15 (observability, needs a binding), `/og.png` and a
+favicon (need an image from the user).

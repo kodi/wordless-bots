@@ -3,6 +3,11 @@
   "name": "wordless",
   "main": "src/worker/index.ts",
   "compatibility_date": "2026-10-01",
+  // One exact hostname per Worker, never a wildcard: the recovery mail links to the request's origin (ARCHITECTURE §14).
+  // So no workers.dev or preview URLs either.
+  "routes": [{ "pattern": "wordless.one", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false,
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
@@ -37,6 +42,7 @@
   "env": {
     // Bindings aren't inherited, so staging repeats every one of them.
     "staging": {
+      "routes": [{ "pattern": "staging.wordless.one", "custom_domain": true }],
       "triggers": { "crons": ["* * * * *"] },
       "secrets": { "required": ["IP_HASH_SECRET", "ADMIN_TOKEN"] },
       "send_email": [{ "name": "EMAIL" }],

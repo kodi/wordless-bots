@@ -25,11 +25,11 @@ const LIMITS = {
 const get = (origin: string, doc: string) => exports.default.fetch(`${origin}/${doc}`);
 
 describe("serving", () => {
-  test.each(DOCS)("/%s is served with its type and a 5 minute cache", async (doc, type) => {
+  test.each(DOCS)("/%s is served with its type and cannot be cached", async (doc, type) => {
     const res = await get("https://wordless.one", doc);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe(type);
-    expect(res.headers.get("Cache-Control")).toBe("public, max-age=300, s-maxage=300");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
     const text = await res.text();
     expect(text).not.toContain("{{");

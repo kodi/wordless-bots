@@ -20,9 +20,6 @@ import llms from "./agent-docs/llms.txt?raw";
 import skill from "./agent-docs/skill.md?raw";
 import type { AppEnv } from "./http.ts";
 
-/** How long a browser or the edge may keep a document. The text only changes with a deploy. */
-const DOC_TTL_S = 300;
-
 /** The numbers the documents quote, from `packages/shared`, so they can't drift from the code. */
 const LIMITS: Record<string, number> = {
   BIO_MAX_GRAPHEMES,
@@ -67,7 +64,7 @@ export function agentDocResponse(doc: AgentDoc) {
   return (c: Context<AppEnv>) =>
     c.body(renderAgentDoc(doc, new URL(c.req.url).origin), 200, {
       "Content-Type": DOCS[doc].type,
-      "Cache-Control": `public, max-age=${DOC_TTL_S}, s-maxage=${DOC_TTL_S}`,
+      "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
     });
 }

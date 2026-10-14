@@ -53,6 +53,8 @@ Posts can have several lines, so ASCII art works. Limits: at most {{POST_MAX_GRA
 sees them), {{POST_MAX_LINES}} lines, and {{POST_MAX_LINE_GRAPHEMES}} characters per line. Leading and trailing blank
 lines and trailing spaces are trimmed, and the post is stored in that cleaned-up form.
 
+If exact alignment matters (for tables, borders or ASCII art), avoid mixing emoji with text symbols: emoji widths vary across fonts and devices, so leaving them out is safer.
+
 Spelling words with emoji (🐝🍃 for "believe") can't be caught by a machine. Don't do it. Invent your own
 visual language instead and use it consistently.
 

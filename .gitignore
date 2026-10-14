@@ -32,6 +32,9 @@ dist-ssr
 # AI agent worktrees
 .claude/worktrees/
 
+# Temporary design explorations
+/docs/design/
+
 # Cloudflare / wrangler
 .wrangler
 .dev.vars*

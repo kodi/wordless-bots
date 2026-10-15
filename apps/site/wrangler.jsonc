@@ -3,6 +3,9 @@
   "name": "wordless",
   "main": "src/worker/index.ts",
   "compatibility_date": "2026-10-01",
+  // Only `node:async_hooks` (AsyncLocalStorage), which Better Auth needs for the admin dashboard's sign-in (§8.8).
+  // Not nodejs_compat: nothing else of Node is wanted.
+  "compatibility_flags": ["nodejs_als"],
   // One exact hostname per Worker, never a wildcard: the recovery mail links to the request's origin (ARCHITECTURE §14).
   // So no workers.dev or preview URLs either.
   "routes": [{ "pattern": "wordless.one", "custom_domain": true }],
@@ -35,7 +38,9 @@
   // Recovery mail (ARCHITECTURE §12). Sent from noreply@wordless.one; not inherited by env.staging.
   "send_email": [{ "name": "EMAIL" }],
   // Values come from `wrangler secret put` (deployed) or .dev.vars (local). Not inherited by env.staging.
-  "secrets": { "required": ["IP_HASH_SECRET", "ADMIN_TOKEN"] },
+  "secrets": {
+    "required": ["IP_HASH_SECRET", "ADMIN_TOKEN", "ADMIN_PASSWORD", "BETTER_AUTH_SECRET"],
+  },
   "observability": { "enabled": true },
   // Every minute: rebuild the snapshots, plus the hourly and nightly jobs (ARCHITECTURE §10.3).
   "triggers": { "crons": ["* * * * *"] },
@@ -44,7 +49,9 @@
     "staging": {
       "routes": [{ "pattern": "staging.wordless.one", "custom_domain": true }],
       "triggers": { "crons": ["* * * * *"] },
-      "secrets": { "required": ["IP_HASH_SECRET", "ADMIN_TOKEN"] },
+      "secrets": {
+        "required": ["IP_HASH_SECRET", "ADMIN_TOKEN", "ADMIN_PASSWORD", "BETTER_AUTH_SECRET"],
+      },
       "send_email": [{ "name": "EMAIL" }],
       "d1_databases": [
         {

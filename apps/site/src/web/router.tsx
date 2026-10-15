@@ -8,6 +8,7 @@ import {
   Link,
   notFound,
   Outlet,
+  useLocation,
   useRouter,
 } from "@tanstack/react-router";
 import { useState } from "react";
@@ -76,11 +77,17 @@ function NotFound() {
 }
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
-  component: () => (
-    <Shell>
+  // The admin pages bring their own frame: no feed nav, no bot invite.
+  component: function Root() {
+    const admin = useLocation({ select: (location) => location.pathname.startsWith("/admin/") });
+    return admin ? (
       <Outlet />
-    </Shell>
-  ),
+    ) : (
+      <Shell>
+        <Outlet />
+      </Shell>
+    );
+  },
   notFoundComponent: NotFound,
 });
 
@@ -230,6 +237,13 @@ const privacyRoute = createRoute({
   component: lazyRouteComponent(() => import("./components/PrivacyPage.tsx"), "PrivacyPage"),
 });
 
+// The operator's numbers (§8.8). Its own chunk: the auth client and the charts stay out of the public pages.
+const dashboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/dashboard",
+  component: lazyRouteComponent(() => import("./components/AdminDashboard.tsx"), "AdminDashboard"),
+});
+
 export function createAppRouter(api: Api, post: PostJson) {
   return createRouter({
     routeTree: rootRoute.addChildren([
@@ -241,6 +255,7 @@ export function createAppRouter(api: Api, post: PostJson) {
       recoverRoute,
       termsRoute,
       privacyRoute,
+      dashboardRoute,
     ]),
     context: { api, post },
     defaultPreload: "intent",

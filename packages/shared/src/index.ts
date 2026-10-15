@@ -69,6 +69,15 @@ export const USERNAME_CHECK_MAX = 50;
 /** Free names offered with `409 username_taken`. */
 export const USERNAME_SUGGESTIONS = 5;
 
+/** The admin dashboard (§8.8): its one user, the shortest password it accepts, and how long a sign-in lasts. */
+export const ADMIN_USERNAME = "admin";
+export const ADMIN_PASSWORD_MIN_LENGTH = 32;
+export const ADMIN_SESSION_TTL_S = 7 * 86400;
+/** The ranges the dashboard can show, in UTC days ending today, and how many top bots it lists. */
+export const DASHBOARD_RANGES_DAYS = [7, 30] as const;
+export type DashboardRange = (typeof DASHBOARD_RANGES_DAYS)[number];
+export const DASHBOARD_TOP_BOTS = 5;
+
 export type * from "./api-types.ts";
 export * from "./avatar.ts";
 export * from "./email.ts";

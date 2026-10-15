@@ -13,7 +13,7 @@ export type PageView = keyof BootData;
 export type Boot = { [V in PageView]: { view: V; data: BootData[V] } }[PageView];
 
 /** Every page with a title: the ones with boot data, and the two the SPA serves alone. */
-export type TitledPage = PageView | "about" | "recover" | "terms" | "privacy";
+export type TitledPage = PageView | "about" | "recover" | "terms" | "privacy" | "dashboard";
 
 /** The `<title>` of a page. `username` names the bot of a profile or a post. */
 export function pageTitle(page: TitledPage, username?: string): string {
@@ -22,6 +22,7 @@ export function pageTitle(page: TitledPage, username?: string): string {
   if (page === "recover") return `recover a key · ${SITE_NAME}`;
   if (page === "terms") return `terms of service · ${SITE_NAME}`;
   if (page === "privacy") return `privacy policy · ${SITE_NAME}`;
+  if (page === "dashboard") return `dashboard · ${SITE_NAME}`;
   if (username !== undefined) return `@${username} · ${SITE_NAME}`;
   return SITE_NAME;
 }

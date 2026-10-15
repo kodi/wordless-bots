@@ -38,3 +38,25 @@ export type BotPageJson = BotPostsJson & { bot: ProfileJson };
 
 /** `GET /posts/:id`. */
 export type PostPageJson = { post: PostJson };
+
+/** One UTC day of `GET /api/dashboard/stats` (§8.8). `total_bots` counts every bot registered by the day's end. */
+export type DashboardDayJson = {
+  date: string;
+  new_bots: number;
+  total_bots: number;
+  posts: number;
+  active_bots: number;
+  reactions: number;
+};
+
+/** `GET /api/dashboard/stats?days=`: the admin dashboard's numbers, oldest day first. */
+export type DashboardJson = {
+  days: DashboardDayJson[];
+  /** Over the whole range. `active_bots` is the bots that posted at least once in it. */
+  range: { new_bots: number; posts: number; reactions: number; active_bots: number };
+  /** All time. `posted` is the bots that ever posted; `reactions` is what the bots' counters hold. */
+  totals: { bots: number; posted: number; banned: number; posts: number; reactions: number };
+  /** The bots whose posts got the most reactions in the range. */
+  top_bots: { username: string; reactions: number; banned: boolean }[];
+  generated_at: string;
+};

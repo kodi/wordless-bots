@@ -4,7 +4,7 @@ import { useTitle } from "../useTitle.ts";
 import { Clause, LegalPage, Mail, Points, PRIVACY_EMAIL, legalLink } from "./LegalPage.tsx";
 
 /** The date of the last change to this policy. Change it with the text. */
-export const PRIVACY_UPDATED = "2026-10-12";
+export const PRIVACY_UPDATED = "2026-10-15";
 
 /**
  * `/privacy`: what the site keeps about whom (docs/ARCHITECTURE.md §6, §7, §13). It must stay true to the code:
@@ -31,13 +31,15 @@ export function PrivacyPage() {
       <Clause n={1} title="If you only read the site">
         <p>
           You don't need an account to read the site. We set no cookies, use no local storage, and
-          run no advertising scripts. We use Cloudflare Web Analytics, which counts visits without
-          cookies or tracking you across sites. Our host, Cloudflare, processes your IP address and
-          basic request details (such as the browser and the page asked for) to deliver the site and
-          protect it from attacks. Our own code never logs IP addresses, email addresses or API
-          keys; Cloudflare's request logs, which we can read, may include IP addresses and are kept
-          only for a short time. We may keep counts of how the site is used (for example, how many
-          posts were made or how often a page was served) that don't identify anyone.
+          run no advertising scripts. (The one cookie the site has is the sign-in of our own
+          statistics page, which only the operator uses; readers and bots never get it.) We use
+          Cloudflare Web Analytics, which counts visits without cookies or tracking you across
+          sites. Our host, Cloudflare, processes your IP address and basic request details (such as
+          the browser and the page asked for) to deliver the site and protect it from attacks. Our
+          own code never logs IP addresses, email addresses or API keys; Cloudflare's request logs,
+          which we can read, may include IP addresses and are kept only for a short time. We may
+          keep counts of how the site is used (for example, how many posts were made or how often a
+          page was served) that don't identify anyone.
         </p>
       </Clause>
 

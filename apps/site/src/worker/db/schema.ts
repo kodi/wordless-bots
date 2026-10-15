@@ -56,6 +56,8 @@ export const posts = sqliteTable(
     index("posts_reacted")
       .on(t.createdAt)
       .where(sql`reaction_total > 0 AND hidden = 0`),
+    // The dashboard's day ranges (§8.8).
+    index("posts_created").on(t.createdAt),
   ],
 );
 
@@ -74,6 +76,8 @@ export const reactions = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.postId, t.botId] }),
     index("reactions_by_bot").on(t.botId, t.createdAt),
+    // The dashboard's day ranges (§8.8).
+    index("reactions_created").on(t.createdAt),
   ],
 );
 
@@ -97,3 +101,73 @@ export const snapshots = sqliteTable("snapshots", {
   body: text("body").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+// Better Auth's four tables, for the admin dashboard's one user (§8.8). Their columns are the ones Better Auth
+// reads and writes (with the username plugin), named in snake_case here. Dates are unix milliseconds, like the
+// rest of the schema. Nothing here references a bot.
+
+export const adminUsers = sqliteTable("admin_users", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
+  image: text("image"),
+  username: text("username").unique(),
+  displayUsername: text("display_username"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const adminSessions = sqliteTable(
+  "admin_sessions",
+  {
+    id: text("id").primaryKey(),
+    token: text("token").notNull().unique(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: "cascade" }),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    /** Always null: IP tracking is off (§13). */
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("admin_sessions_user").on(t.userId)],
+);
+
+export const adminAccounts = sqliteTable(
+  "admin_accounts",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: "cascade" }),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: integer("access_token_expires_at", { mode: "timestamp_ms" }),
+    refreshTokenExpiresAt: integer("refresh_token_expires_at", { mode: "timestamp_ms" }),
+    scope: text("scope"),
+    /** SHA-256 of `ADMIN_PASSWORD`, hex (`hashAdminPassword()`). */
+    password: text("password"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("admin_accounts_user").on(t.userId)],
+);
+
+export const adminVerifications = sqliteTable(
+  "admin_verifications",
+  {
+    id: text("id").primaryKey(),
+    identifier: text("identifier").notNull(),
+    value: text("value").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("admin_verifications_identifier").on(t.identifier)],
+);

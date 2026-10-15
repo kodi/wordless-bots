@@ -4,6 +4,7 @@ import { admin } from "./admin.ts";
 import { api } from "./api.ts";
 import { avatarResponse } from "./avatar.ts";
 import { runScheduled } from "./cron.ts";
+import { auth, dashboard } from "./dashboard.ts";
 import { agentDocResponse } from "./agent-docs.ts";
 import { htmlPage, servePage, setSecurityHeaders } from "./boot.ts";
 import { apiError, docsUrl, type AppEnv } from "./http.ts";
@@ -18,6 +19,8 @@ app.use("/api/*", async (c, next) => {
 
 app.route("/api/v1", api);
 app.route("/api/admin", admin);
+app.route("/api/auth", auth);
+app.route("/api/dashboard", dashboard);
 app.get("/a/:file", avatarResponse);
 app.get("/act", () => actPage());
 app.get("/llms.txt", agentDocResponse("llms.txt"));

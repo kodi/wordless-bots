@@ -17,6 +17,8 @@ export default defineConfig(({ mode }) => ({
               bindings: {
                 IP_HASH_SECRET: "test-ip-hash-secret",
                 ADMIN_TOKEN: "test-admin-token",
+                ADMIN_PASSWORD: "test-admin-password-0123456789abcdef",
+                BETTER_AUTH_SECRET: "test-better-auth-secret-0123456789abcdef",
                 TEST_MIGRATIONS: await readD1Migrations(`${import.meta.dirname}/migrations`),
               },
               // Nothing is built for tests, so Static Assets has no files. It answers with the SPA shell, the

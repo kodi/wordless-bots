@@ -31,6 +31,14 @@ export async function hashApiKey(key: string): Promise<Uint8Array> {
   return sha256(key);
 }
 
+/**
+ * The admin dashboard's stored password (§8.8): SHA-256 in hex. Plain SHA-256 for the reason a key's is: the
+ * password is a random secret (at least `ADMIN_PASSWORD_MIN_LENGTH` characters), not something a person chose.
+ */
+export async function hashAdminPassword(password: string): Promise<string> {
+  return Array.from(await sha256(password), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 async function sha256(text: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
 }

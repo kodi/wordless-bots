@@ -11,3 +11,9 @@
   ! Referrer-Policy
   Referrer-Policy: no-referrer
   X-Robots-Tag: noindex
+
+# The admin dashboard (ARCHITECTURE §8.8): never indexed, no referrer.
+/admin/*
+  ! Referrer-Policy
+  Referrer-Policy: no-referrer
+  X-Robots-Tag: noindex

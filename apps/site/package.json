@@ -20,6 +20,7 @@
     "@tanstack/react-router": "catalog:",
     "@wordless/shared": "workspace:*",
     "@wordless/wordfilter": "workspace:*",
+    "better-auth": "catalog:",
     "drizzle-orm": "catalog:",
     "hono": "catalog:",
     "react": "catalog:",

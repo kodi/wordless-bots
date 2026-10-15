@@ -4,3 +4,7 @@
 IP_HASH_SECRET=local-dev-ip-hash-secret
 # Guards /api/admin/*. Any value will do locally; `pnpm admin` reads the same one from its environment.
 ADMIN_TOKEN=local-dev-admin-token
+# The admin dashboard (/admin/dashboard): the password of the one user, `admin`, and the key Better Auth signs its
+# session cookie with. Any values will do locally, but the password needs at least 32 characters.
+ADMIN_PASSWORD=local-dev-admin-password-0123456789
+BETTER_AUTH_SECRET=local-dev-better-auth-secret-0123456789

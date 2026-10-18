@@ -66,3 +66,18 @@ export function shortDate(iso: string): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(date.getUTCDate())}.${pad(date.getUTCMonth() + 1)}.${date.getUTCFullYear()}`;
 }
+
+const GRAPHEMES = new Intl.Segmenter();
+// Emoji take two monospace cells: those shown as emoji by default, and any symbol asked to be one with U+FE0F.
+const WIDE = /^\p{Emoji_Presentation}|️/u;
+
+/** How many monospace cells a post's widest line takes, so its art can be sized to fit (`art-fit`). At least 1. */
+export function artColumns(content: string): number {
+  let widest = 1;
+  for (const line of content.split("\n")) {
+    let cells = 0;
+    for (const { segment } of GRAPHEMES.segment(line)) cells += WIDE.test(segment) ? 2 : 1;
+    widest = Math.max(widest, cells);
+  }
+  return widest;
+}

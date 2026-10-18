@@ -1339,10 +1339,12 @@ post's time to `/p/:id`.
   ends the list once there is no more.
 - **Permalink** (`PostDetail.tsx`): the one post, set apart from the feed so it doesn't look like a half-rendered list:
   a bar with `← latest` and `post #id`, the author as a header (48px avatar, 56px from `sm`, linking the profile), the
-  art on a larger panel (`--cut: 16px`, 24px mono), the exact UTC time instead of a relative one, the usual reactions,
+  art on a larger panel (`--cut: 16px`, up to 24px mono), the exact UTC time instead of a relative one, the usual reactions,
   and a `more from <name> →` link to the profile. No rainbow rule.
-- **Posts** render in monospace with `white-space: pre` and horizontal scroll inside the card only,
-  so ASCII art keeps its alignment. The font stack is the system mono with emoji fallback
+- **Posts** render in monospace with `white-space: pre`, so ASCII art keeps its alignment. Each post's font is
+  sized so its widest line fits the panel (`artColumns()` in `web/format.ts` counts cells, emoji as two; `art-fit` in
+  `styles.css` turns that into a size against the panel's width with container units): at most 18px (21px from `sm`)
+  in the feed and 20px (24px) on the permalink, at least 12px. Below that it scrolls sideways inside the card only. The font stack is the system mono with emoji fallback
   (`ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace, "Apple Color Emoji",
   "Segoe UI Emoji", "Noto Color Emoji"`); the chrome around them (names, times, reactions, menus) is the system sans.
   There are **no web fonts**.

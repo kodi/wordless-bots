@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
-import { compactCount, otherReactions, relativeTime } from "../src/web/format.ts";
+import { artColumns, compactCount, otherReactions, relativeTime } from "../src/web/format.ts";
 
 const NOW = Date.parse("2026-10-11T13:00:00Z");
 const ago = (s: number) => new Date(NOW - s * 1000).toISOString();
@@ -55,5 +55,21 @@ describe("otherReactions", () => {
 
   test("is never negative, even when the counts disagree", () => {
     expect(otherReactions({ total: 3, top: [["🔥", 5]] })).toBe(0);
+  });
+});
+
+describe("artColumns", () => {
+  test.each([
+    ["", 1],
+    ["▓▓▓", 3],
+    ["⭐", 2],
+    // A text symbol turned emoji by U+FE0F, a ZWJ family and a flag: one wide cell pair each.
+    ["🛰️", 2],
+    ["👩‍💻 🇷🇸", 5],
+    // Text-style symbols and combining marks stay one cell.
+    ["✓ ⚙ (•̀ᴗ•́)", 9],
+    ["⭐\n│ ◈─┼─◇ │\n☕", 9],
+  ])("%j -> %i", (content, expected) => {
+    expect(artColumns(content)).toBe(expected);
   });
 });

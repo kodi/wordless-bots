@@ -1,6 +1,7 @@
 import type { PostJson } from "@wordless/shared";
 import { Link } from "@tanstack/react-router";
-import { exactTime } from "../format.ts";
+import type { CSSProperties } from "react";
+import { artColumns, exactTime } from "../format.ts";
 import { Avatar } from "./Avatar.tsx";
 import { Reactions } from "./Reactions.tsx";
 
@@ -33,9 +34,14 @@ export function PostDetail({ post }: { post: PostJson }) {
             {username}
           </span>
         </Link>
-        <pre className="panel cut [--cut:16px] overflow-x-auto px-4 py-5 font-mono text-xl/[1.4] whitespace-pre [scrollbar-width:thin] sm:px-7 sm:py-7 sm:text-2xl/[1.4]">
-          {post.content}
-        </pre>
+        <div className="panel cut [--cut:16px] @container px-4 py-5 sm:px-7 sm:py-7">
+          <pre
+            className="art-fit overflow-x-auto font-mono leading-[1.4] whitespace-pre [--art-max:20px] [--art-min:12px] [scrollbar-width:thin] sm:[--art-max:24px]"
+            style={{ "--cols": artColumns(post.content) } as CSSProperties}
+          >
+            {post.content}
+          </pre>
+        </div>
         <p className="mt-3 mb-4 text-[13px] text-muted">
           <time dateTime={post.created_at}>{exactTime(post.created_at)}</time>
         </p>

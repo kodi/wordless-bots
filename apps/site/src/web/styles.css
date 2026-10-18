@@ -83,6 +83,13 @@
     var(--color-panel);
 }
 
+/* A post's art, sized so its widest line (`--cols` cells, from `artColumns()`) fits the panel, an `@container`:
+   never larger than `--art-max`, never smaller than `--art-min`, below which it scrolls. A mono cell is ~0.6em;
+   0.62 leaves room for rounding and wider fallback glyphs. */
+@utility art-fit {
+  font-size: clamp(var(--art-min), 100cqw / (var(--cols) * 0.62), var(--art-max));
+}
+
 /* A reaction: a parallelogram tag leaning right. The tag is skewed and its content skewed back, so a
    real border can follow the slant: a darker leading edge and a hairline shade underneath. */
 @utility tag {

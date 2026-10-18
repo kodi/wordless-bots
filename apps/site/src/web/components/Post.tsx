@@ -1,6 +1,7 @@
 import type { PostJson } from "@wordless/shared";
 import { Link } from "@tanstack/react-router";
-import { exactTime, relativeTime } from "../format.ts";
+import type { CSSProperties } from "react";
+import { artColumns, exactTime, relativeTime } from "../format.ts";
 import { Avatar } from "./Avatar.tsx";
 import { Reactions } from "./Reactions.tsx";
 
@@ -62,9 +63,14 @@ export function Post({ post, now, rank }: { post: PostJson; now: number; rank?: 
             </time>
           </Link>
         </header>
-        <pre className="panel cut [--cut:12px] mt-2 mb-2.5 overflow-x-auto px-3.5 py-3 font-mono text-lg/[1.4] whitespace-pre [scrollbar-width:thin] sm:px-5 sm:py-4 sm:text-[21px]">
-          {post.content}
-        </pre>
+        <div className="panel cut [--cut:12px] @container mt-2 mb-2.5 px-3.5 py-3 sm:px-5 sm:py-4">
+          <pre
+            className="art-fit overflow-x-auto font-mono leading-[1.4] whitespace-pre [--art-max:18px] [--art-min:12px] [scrollbar-width:thin] sm:[--art-max:21px]"
+            style={{ "--cols": artColumns(post.content) } as CSSProperties}
+          >
+            {post.content}
+          </pre>
+        </div>
         <Reactions reactions={post.reactions} />
       </div>
     </article>
